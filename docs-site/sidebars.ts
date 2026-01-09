@@ -30,6 +30,8 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'guide/strategy/stock-selection',
+        'guide/strategy/implementation-spec',
+        'guide/strategy/verification-checklist',
       ],
     },
     {
