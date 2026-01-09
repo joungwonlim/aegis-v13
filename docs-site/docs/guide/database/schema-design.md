@@ -701,5 +701,134 @@ SELECT 'investor_flow', COUNT(*) FROM data.investor_flow;
 
 ---
 
+## 향후 확장 계획
+
+> 시스템 안정화 후 추가 예정인 기능들
+
+### 1. investor_flow 상세 분류
+
+현재 3개 그룹(외인/기관/개인)에서 9개 투자자 유형으로 확장:
+
+```sql
+-- 현재 (v13.0)
+foreign_net_qty, foreign_net_value,
+inst_net_qty, inst_net_value,
+indiv_net_qty, indiv_net_value
+
+-- 향후 확장 (v13.x)
+foreign_net, foreign_qty,      -- 외국인
+inst_net, inst_qty,            -- 기관 합계
+individual_net, individual_qty, -- 개인
+financial_net,                  -- 금융투자
+insurance_net,                  -- 보험
+trust_net,                      -- 투신
+pension_net,                    -- 연기금
+bank_net,                       -- 은행
+other_inst_net                  -- 기타기관
+```
+
+**필요 조건**: 상세 수급 데이터 소스 확보 (KRX/증권사 API)
+
+### 2. fundamentals 확장 지표
+
+현재 7개 핵심 지표에서 20+ 지표로 확장:
+
+```sql
+-- 현재 (v13.0)
+per, pbr, roe, debt_ratio, revenue, operating_profit, net_profit
+
+-- 향후 확장 (v13.x)
+-- 밸류에이션
+psr,                    -- Price to Sales
+pcr,                    -- Price to Cash Flow
+ev_ebitda,              -- EV/EBITDA
+div_yield,              -- 배당수익률
+
+-- 주당 지표
+eps,                    -- 주당순이익
+bps,                    -- 주당순자산
+dps,                    -- 주당배당금
+
+-- 수익성
+roa,                    -- 총자산이익률
+npm,                    -- 순이익률
+opm,                    -- 영업이익률
+
+-- 안정성
+current_ratio,          -- 유동비율
+
+-- 성장성
+revenue_growth,         -- 매출 성장률
+profit_growth           -- 이익 성장률
+```
+
+**필요 조건**: DART API 연동 완료, 재무제표 파싱 로직 구현
+
+### 3. 실시간 데이터 지원
+
+```sql
+-- 향후 추가 테이블
+CREATE TABLE data.realtime_prices (
+    stock_code    VARCHAR(20) NOT NULL,
+    timestamp     TIMESTAMPTZ NOT NULL,
+    price         NUMERIC(12,2),
+    volume        BIGINT,
+    bid_price     NUMERIC(12,2),
+    ask_price     NUMERIC(12,2),
+    PRIMARY KEY (stock_code, timestamp)
+);
+
+CREATE TABLE data.realtime_orderbook (
+    stock_code    VARCHAR(20) NOT NULL,
+    timestamp     TIMESTAMPTZ NOT NULL,
+    bid_prices    NUMERIC(12,2)[],
+    bid_volumes   BIGINT[],
+    ask_prices    NUMERIC(12,2)[],
+    ask_volumes   BIGINT[],
+    PRIMARY KEY (stock_code, timestamp)
+);
+```
+
+**필요 조건**: 실시간 시세 API 연동 (KIS WebSocket)
+
+### 4. 백테스트 스키마
+
+```sql
+-- 향후 추가 스키마
+CREATE SCHEMA backtest;
+
+CREATE TABLE backtest.simulations (
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(200),
+    start_date      DATE,
+    end_date        DATE,
+    initial_capital BIGINT,
+    strategy_params JSONB,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE backtest.simulation_trades (
+    simulation_id   INT REFERENCES backtest.simulations(id),
+    trade_date      DATE,
+    stock_code      VARCHAR(20),
+    action          VARCHAR(10),
+    price           NUMERIC(12,2),
+    qty             INT,
+    PRIMARY KEY (simulation_id, trade_date, stock_code)
+);
+
+CREATE TABLE backtest.simulation_results (
+    simulation_id   INT PRIMARY KEY REFERENCES backtest.simulations(id),
+    total_return    NUMERIC(10,6),
+    sharpe_ratio    NUMERIC(10,6),
+    max_drawdown    NUMERIC(10,6),
+    metrics         JSONB
+);
+```
+
+**필요 조건**: 백테스트 엔진 구현
+
+---
+
 **Prev**: [Frontend Folder Structure](../frontend/folder-structure.md)
 **Next**: [Getting Started](../overview/getting-started.md)
