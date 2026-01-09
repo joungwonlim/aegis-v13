@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(go run:*)",
+      "Bash(go test:*)",
+      "Bash(go mod:*)",
+      "Bash(pnpm:*)",
+      "Bash(git:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(backend/.env)",
+      "Read(backend/.env.*)",
+      "Write(./.env)",
+      "Write(./.env.*)",
+      "Write(backend/.env)",
+      "Write(backend/.env.*)",
+      "Bash(make run)",
+      "Bash(cd backend && make run)",
+      "Bash(cd /Users/wonny/Dev/aegis/v13/backend && make run)",
+      "Bash(go run ./cmd/api*)",
+      "Bash(go run cmd/api*)",
+      "Bash(go run ./cmd/quant*)",
+      "Bash(go run cmd/quant*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit(backend/**/*.go)|Write(backend/**/*.go)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd backend && make lint"
+          }
+        ]
+      }
+    ]
+  },
+  "attribution": {
+    "commit": "Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>",
+    "pr": ""
+  }
+}
