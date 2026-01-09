@@ -91,6 +91,17 @@ S7: Audit         → 성과 분석
 | 컴포넌트 | `modules/*/components/` | 페이지에서 정의 |
 | UI 기본 | `shared/components/ui/` | 직접 스타일링 |
 
+### Documentation
+
+| 책임 | 허용 위치 | 금지 |
+|------|----------|------|
+| 모든 문서 | `docs-site/docs/guide/` | `backend/`, `frontend/` 내 .md 생성 |
+| DB 스키마 | `docs-site/docs/guide/database/` | `backend/migrations/*.md` |
+| 아키텍처 | `docs-site/docs/guide/architecture/` | 프로젝트 루트 .md |
+| API 문서 | `docs-site/docs/guide/api/` | 코드 내 별도 문서 |
+
+> ⚠️ **문서는 반드시 `docs-site/` 에만 생성**. README.md, CLAUDE.md 제외.
+
 ---
 
 ## Build & Run
