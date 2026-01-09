@@ -28,10 +28,11 @@ description: S0 Data Collection + S1 Universe
 | **S0: Quality Gate** | ✅ 완료 | `internal/s0_data/quality/validator.go` |
 | **S0: Repository** | ✅ 완료 | `internal/s0_data/repository.go` |
 | **S0: Naver Client** | ✅ 완료 | `internal/external/naver/client.go` |
+| **S0: DART Client** | ✅ 완료 | `internal/external/dart/client.go` |
+| **S0: KRX Client** | ✅ 완료 | `internal/external/krx/client.go` |
 | **S0: Data Collector** | ✅ 완료 | `internal/s0_data/collector/collector.go` |
 | **S1: Universe Builder** | ✅ 완료 | `internal/s1_universe/builder.go` |
 | **S1: Repository** | ✅ 완료 | `internal/s1_universe/repository.go` |
-| Data Sources (DART/KRX) | ❌ TODO | `internal/external/dart/`, `internal/external/krx/` |
 | Scheduler | ❌ TODO | `internal/s0_data/scheduler/` |
 
 ## 폴더 구조
@@ -52,12 +53,20 @@ internal/
 │   └── repository.go           # ✅ DB 저장 (universe_snapshots)
 │
 ├── external/                   # ✅ 외부 API 클라이언트 (SSOT)
-│   └── naver/
+│   ├── naver/
+│   │   ├── client.go           # ✅ HTTP 클라이언트
+│   │   ├── prices.go           # ✅ 가격 데이터 수집
+│   │   ├── prices_test.go      # ✅ 테스트
+│   │   ├── investor.go         # ✅ 투자자 수급 수집
+│   │   └── investor_test.go    # ✅ 테스트
+│   ├── dart/
+│   │   ├── client.go           # ✅ Legacy TLS 클라이언트
+│   │   ├── client_test.go      # ✅ 테스트
+│   │   └── disclosure.go       # ✅ 공시 데이터 수집
+│   └── krx/
 │       ├── client.go           # ✅ HTTP 클라이언트
-│       ├── prices.go           # ✅ 가격 데이터 수집
-│       ├── prices_test.go      # ✅ 테스트
-│       ├── investor.go         # ✅ 투자자 수급 수집
-│       └── investor_test.go    # ✅ 테스트
+│       ├── market_trend.go     # ✅ 시장 지표 수집
+│       └── market_trend_test.go # ✅ 테스트
 │
 └── contracts/                  # ✅ 타입 정의 (SSOT)
     ├── data.go                 # DataQualitySnapshot
@@ -65,9 +74,9 @@ internal/
 ```
 
 **TODO**:
-- `external/dart/` (DART API 클라이언트)
-- `external/krx/` (KRX 데이터 수집)
-- `scheduler/` (스케줄러)
+- `scheduler/` (스케줄러 - 일정 관리)
+- DART/KRX 데이터를 Collector에 통합 (Naver 패턴 참고)
+- 시가총액 계산 로직 추가 (가격 × 발행주식수)
 
 ---
 
@@ -143,6 +152,71 @@ func (c *Collector) FetchAll(ctx context.Context, from, to time.Time, cfg Config
 - Worker pool으로 동시 처리
 - 에러 허용 (일부 종목 실패 시 계속 진행)
 - 진행 상태 로깅
+
+### DART Client 구현
+
+```go
+// internal/external/dart/client.go
+
+type Client struct {
+    httpClient *http.Client  // Legacy TLS 지원
+    apiKey     string
+    baseURL    string
+    logger     *logger.Logger
+}
+
+// FetchDisclosures: 특정 기업의 공시 조회 (with retry)
+func (c *Client) FetchDisclosures(ctx context.Context, corpCode string, from, to time.Time) ([]Disclosure, error)
+
+// FetchDisclosuresForPage: 전체 기업 공시 페이지별 조회
+func (c *Client) FetchDisclosuresForPage(ctx context.Context, from, to time.Time, page int) ([]Disclosure, int, error)
+```
+
+**특징**:
+- **Legacy TLS 지원**: Go 1.22+에서 DART API 호환을 위한 RSA 키 교환 활성화
+- **Exponential backoff retry**: 네트워크 오류 시 자동 재시도 (최대 3회)
+- **Retryable error 판별**: EOF, timeout, connection reset 등 재시도 가능한 오류 구분
+
+```go
+// Legacy TLS Configuration (DART API 호환)
+func newLegacyCompatibleClient(timeout time.Duration) *http.Client {
+    tlsCfg := &tls.Config{
+        MinVersion: tls.VersionTLS12,
+        MaxVersion: tls.VersionTLS12,
+        CipherSuites: []uint16{
+            tls.TLS_RSA_WITH_AES_128_GCM_SHA256,  // DART API 필수
+            // ... 추가 cipher suites
+        },
+    }
+}
+```
+
+### KRX Client 구현
+
+```go
+// internal/external/krx/client.go
+
+type Client struct {
+    httpClient *httputil.Client
+    logger     *logger.Logger
+    baseURL    string  // Naver API proxy
+}
+
+// FetchMarketTrend: 시장 전체 투자자 수급 데이터
+func (c *Client) FetchMarketTrend(ctx context.Context, indexName string) (*MarketTrendData, error)
+
+type MarketTrendData struct {
+    TradeDate      time.Time
+    ForeignNet     float64  // 외국인 순매수
+    InstitutionNet float64  // 기관 순매수
+    IndividualNet  float64  // 개인 순매수
+}
+```
+
+**특징**:
+- **Naver API 프록시 사용**: `https://m.stock.naver.com/api/index/{index}/trend`
+- **복잡한 포맷 파싱**: "+1,459,781", "-1,240,182" 형식 처리
+- **시장 지표 제공**: KOSPI, KOSDAQ별 투자자 수급
 
 ---
 
