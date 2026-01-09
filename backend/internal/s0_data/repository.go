@@ -289,11 +289,23 @@ func (r *Repository) SaveDisclosures(ctx context.Context, disclosures []dart.Dis
 	defer tx.Rollback(ctx)
 
 	for _, d := range disclosures {
-		_, err := tx.Exec(ctx, query,
-			d.CorpCode, d.ReportDate, d.ReportName, d.Category, d.Content, d.URL,
+		// Parse report date (YYYYMMDD -> time.Time)
+		reportDate, err := time.Parse("20060102", d.RceptDt)
+		if err != nil {
+			return fmt.Errorf("parse report date %s: %w", d.RceptDt, err)
+		}
+
+		// Generate URL from receipt number
+		url := dart.GetDARTURL(d.RceptNo)
+
+		// Get category from corp_cls
+		category := string(dart.GetCategory(d.CorpCls))
+
+		_, err = tx.Exec(ctx, query,
+			d.StockCode, reportDate, d.ReportNm, category, "", url,
 		)
 		if err != nil {
-			return fmt.Errorf("insert disclosure for %s: %w", d.CorpCode, err)
+			return fmt.Errorf("insert disclosure for %s: %w", d.StockCode, err)
 		}
 	}
 

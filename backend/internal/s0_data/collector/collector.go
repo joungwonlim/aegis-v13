@@ -342,3 +342,98 @@ func (c *Collector) FetchAll(ctx context.Context, from, to time.Time, cfg Config
 
 	return nil
 }
+
+// FetchDisclosures fetches disclosure data from DART for all active stocks
+// ⭐ SSOT: DART 공시 수집은 이 함수에서만
+func (c *Collector) FetchDisclosures(ctx context.Context, from, to time.Time) error {
+	c.logger.WithFields(map[string]interface{}{
+		"from": from.Format("2006-01-02"),
+		"to":   to.Format("2006-01-02"),
+	}).Info("Starting disclosure collection")
+
+	// Fetch disclosures for each page (DART API is paginated)
+	allDisclosures := []dart.Disclosure{}
+	page := 1
+	maxPages := 10 // Limit to prevent infinite loops
+
+	for page <= maxPages {
+		disclosures, totalPages, err := c.dartClient.FetchDisclosuresForPage(ctx, from, to, page)
+		if err != nil {
+			c.logger.WithError(err).WithField("page", page).Error("Failed to fetch disclosures page")
+			return fmt.Errorf("fetch disclosures page %d: %w", page, err)
+		}
+
+		if len(disclosures) == 0 {
+			break
+		}
+
+		allDisclosures = append(allDisclosures, disclosures...)
+
+		c.logger.WithFields(map[string]interface{}{
+			"page":        page,
+			"total_pages": totalPages,
+			"count":       len(disclosures),
+		}).Debug("Fetched disclosures page")
+
+		if page >= totalPages {
+			break
+		}
+
+		page++
+	}
+
+	// Save to database
+	if len(allDisclosures) > 0 {
+		if err := c.repo.SaveDisclosures(ctx, allDisclosures); err != nil {
+			return fmt.Errorf("save disclosures: %w", err)
+		}
+
+		c.logger.WithField("count", len(allDisclosures)).Info("Saved disclosures")
+	}
+
+	return nil
+}
+
+// FetchMarketTrends fetches market trend data from KRX (via Naver)
+// ⭐ SSOT: KRX 시장 지표 수집은 이 함수에서만
+func (c *Collector) FetchMarketTrends(ctx context.Context) error {
+	c.logger.Info("Starting market trend collection")
+
+	// Fetch KOSPI trend
+	kospiTrend, err := c.krxClient.FetchMarketTrend(ctx, "KOSPI")
+	if err != nil {
+		return fmt.Errorf("fetch KOSPI trend: %w", err)
+	}
+
+	if kospiTrend != nil {
+		if err := c.repo.SaveMarketTrend(ctx, "KOSPI", kospiTrend); err != nil {
+			return fmt.Errorf("save KOSPI trend: %w", err)
+		}
+
+		c.logger.WithFields(map[string]interface{}{
+			"index":       "KOSPI",
+			"foreign_net": kospiTrend.ForeignNet,
+			"inst_net":    kospiTrend.InstitutionNet,
+		}).Info("Saved KOSPI trend")
+	}
+
+	// Fetch KOSDAQ trend
+	kosdaqTrend, err := c.krxClient.FetchMarketTrend(ctx, "KOSDAQ")
+	if err != nil {
+		return fmt.Errorf("fetch KOSDAQ trend: %w", err)
+	}
+
+	if kosdaqTrend != nil {
+		if err := c.repo.SaveMarketTrend(ctx, "KOSDAQ", kosdaqTrend); err != nil {
+			return fmt.Errorf("save KOSDAQ trend: %w", err)
+		}
+
+		c.logger.WithFields(map[string]interface{}{
+			"index":       "KOSDAQ",
+			"foreign_net": kosdaqTrend.ForeignNet,
+			"inst_net":    kosdaqTrend.InstitutionNet,
+		}).Info("Saved KOSDAQ trend")
+	}
+
+	return nil
+}

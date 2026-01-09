@@ -73,10 +73,14 @@ internal/
     └── universe.go             # Universe
 ```
 
+**완료** (2026-01-10):
+- ✅ DART/KRX 데이터를 Collector에 통합 완료
+- ✅ Repository에 SaveDisclosures, SaveMarketTrend 메서드 추가
+
 **TODO**:
 - `scheduler/` (스케줄러 - 일정 관리)
-- DART/KRX 데이터를 Collector에 통합 (Naver 패턴 참고)
 - 시가총액 계산 로직 추가 (가격 × 발행주식수)
+- 종목 마스터 데이터 수집 로직
 
 ---
 
@@ -129,13 +133,15 @@ func (c *Client) FetchInvestorFlow(ctx context.Context, stockCode string, from, 
 - HTML 파싱 with goquery (투자자 수급)
 - 페이지네이션 지원 (최대 150 페이지)
 
-### Data Collector 구현
+### Data Collector 구현 ⭐ 업데이트
 
 ```go
 // internal/s0_data/collector/collector.go
 
 type Collector struct {
     naverClient *naver.Client
+    dartClient  *dart.Client   // ✅ 추가
+    krxClient   *krx.Client    // ✅ 추가
     repo        *s0_data.Repository
     logger      *logger.Logger
 }
@@ -146,12 +152,19 @@ func (c *Collector) FetchAllInvestorFlow(ctx context.Context, from, to time.Time
 
 // 가격 + 수급 동시 수집
 func (c *Collector) FetchAll(ctx context.Context, from, to time.Time, cfg Config) error
+
+// ✅ 공시 데이터 수집 (DART)
+func (c *Collector) FetchDisclosures(ctx context.Context, from, to time.Time) error
+
+// ✅ 시장 지표 수집 (KRX)
+func (c *Collector) FetchMarketTrends(ctx context.Context) error
 ```
 
 **특징**:
 - Worker pool으로 동시 처리
 - 에러 허용 (일부 종목 실패 시 계속 진행)
 - 진행 상태 로깅
+- **다중 소스 통합**: Naver + DART + KRX
 
 ### DART Client 구현
 
