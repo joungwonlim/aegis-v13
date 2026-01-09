@@ -109,11 +109,16 @@ backend/
 │
 ├── internal/                  # 비공개 비즈니스 로직
 │   ├── contracts/            # ⭐ 타입/인터페이스 SSOT
-│   │   ├── data.go
-│   │   ├── universe.go
-│   │   ├── signals.go
-│   │   ├── portfolio.go
-│   │   └── interfaces.go
+│   │   ├── data.go           # DataQualitySnapshot (S0→S1)
+│   │   ├── universe.go       # Universe (S1→S2)
+│   │   ├── signals.go        # SignalSet, StockSignals (S2→S3/S4)
+│   │   ├── ranked.go         # RankedStock (S4→S5)
+│   │   ├── portfolio.go      # TargetPortfolio (S5→S6)
+│   │   ├── order.go          # Order (S6→Broker)
+│   │   ├── audit.go          # PerformanceReport (S7)
+│   │   ├── interfaces.go     # 7단계 인터페이스
+│   │   ├── *_test.go         # 단위 테스트
+│   │   └── README.md         # Contracts 사용 가이드
 │   │
 │   ├── brain/                # 오케스트레이터 (로직 없음)
 │   │   └── orchestrator.go
