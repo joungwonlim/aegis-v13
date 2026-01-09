@@ -1,51 +1,61 @@
-.PHONY: help deps build build-api build-fetcher run-api run-fetcher test lint clean
+.PHONY: help deps build test lint clean test-db test-logger
 
 # Default target
 help:
 	@echo "Aegis v13 Backend - Available targets:"
 	@echo "  make deps          - Install dependencies"
-	@echo "  make build         - Build all binaries"
-	@echo "  make build-api     - Build API server"
-	@echo "  make build-fetcher - Build fetcher CLI"
-	@echo "  make run-api       - Run API server"
-	@echo "  make run-fetcher   - Run fetcher (collect all)"
-	@echo "  make test          - Run tests"
+	@echo "  make build         - Build unified CLI binary (bin/quant)"
+	@echo "  make test          - Run all tests"
+	@echo "  make test-db       - Test database connection"
+	@echo "  make test-logger   - Test logger functionality"
 	@echo "  make lint          - Run linter"
 	@echo "  make clean         - Clean build artifacts"
+	@echo ""
+	@echo "Run commands (development):"
+	@echo "  go run ./cmd/quant [command]"
+	@echo ""
+	@echo "Available commands:"
+	@echo "  go run ./cmd/quant api              - Run API server"
+	@echo "  go run ./cmd/quant fetcher collect  - Run data fetcher"
+	@echo "  go run ./cmd/quant test-db          - Test database"
+	@echo "  go run ./cmd/quant test-logger      - Test logger"
 
 # Install dependencies
 deps:
 	go mod download
 	go mod tidy
 
-# Build all binaries
-build: build-api build-fetcher
-
-# Build API server
-build-api:
-	@echo "Building API server..."
-	go build -o bin/api ./cmd/api
-
-# Build fetcher CLI
-build-fetcher:
-	@echo "Building fetcher CLI..."
-	go build -o bin/fetcher ./cmd/fetcher
-
-# Run API server
-run-api:
-	@echo "Running API server..."
-	go run ./cmd/api
-
-# Run fetcher (collect all data)
-run-fetcher:
-	@echo "Running fetcher..."
-	go run ./cmd/fetcher collect all
+# Build unified CLI binary
+build:
+	@echo "Building unified CLI (quant)..."
+	@mkdir -p bin
+	go build -o bin/quant ./cmd/quant
+	@echo "✅ Built: bin/quant"
+	@echo ""
+	@echo "Usage:"
+	@echo "  ./bin/quant [command]"
+	@echo ""
+	@echo "Examples:"
+	@echo "  ./bin/quant api"
+	@echo "  ./bin/quant fetcher collect all"
+	@echo "  ./bin/quant test-db"
+	@echo "  ./bin/quant test-logger"
 
 # Run tests
 test:
 	@echo "Running tests..."
 	go test -v -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
+
+# Test database connection
+test-db:
+	@echo "Testing database connection..."
+	go run ./cmd/quant test-db
+
+# Test logger functionality
+test-logger:
+	@echo "Testing logger..."
+	go run ./cmd/quant test-logger
 
 # Run linter
 lint:
