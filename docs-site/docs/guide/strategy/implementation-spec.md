@@ -152,11 +152,12 @@ portfolio:
   weighting:
     method: "TIERED"
     tiers:
-      # 합: 5×8% + 10×5% + 5×2% = 40% + 50% + 10% = 100% (현금 별도)
-      # 실제: 90% 주식 + 10% 현금 = 100%
-      - { count: 5,  weight_each_pct: 0.08 }
-      - { count: 10, weight_each_pct: 0.05 }
-      - { count: 5,  weight_each_pct: 0.02 }
+      # 합: 5×5% + 10×4.5% + 5×4% = 25% + 45% + 20% = 90%
+      # 주식 90% + 현금 10% = 100%
+      # 모든 tier가 position_min_pct(4%) 이상 충족
+      - { count: 5,  weight_each_pct: 0.05 }
+      - { count: 10, weight_each_pct: 0.045 }
+      - { count: 5,  weight_each_pct: 0.04 }
 
   liquidity_caps:
     max_order_to_adtv20_pct: 0.02
@@ -554,6 +555,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -603,6 +605,7 @@ func NewDecisionSnapshot(cfg *Config, yamlData []byte, gitCommit, dataSnapshotID
 		StrategyID:     cfg.Meta.StrategyID,
 		GitCommit:      gitCommit,
 		DataSnapshotID: dataSnapshotID,
+		CreatedAt:      time.Now(),
 	}, nil
 }
 ```
@@ -657,6 +660,13 @@ func Validate(cfg *Config) error {
 		return ValidationError{"meta.execution_window.end", err.Error()}
 	}
 
+	// execution_window: start < end
+	startTime, _ := time.Parse("15:04", cfg.Meta.ExecutionWindow.Start)
+	endTime, _ := time.Parse("15:04", cfg.Meta.ExecutionWindow.End)
+	if !startTime.Before(endTime) {
+		return ValidationError{"meta.execution_window", "start must be before end"}
+	}
+
 	// === Universe ===
 	if cfg.Universe.Filters.MarketcapMinKRW <= 0 {
 		return ValidationError{"universe.filters.marketcap_min_krw", "must be > 0"}
@@ -673,6 +683,14 @@ func Validate(cfg *Config) error {
 	}
 
 	// === Signals ===
+	// lookbacks_days와 weights 배열 길이 일치 확인
+	if len(cfg.Signals.Momentum.LookbacksDays) != len(cfg.Signals.Momentum.Weights) {
+		return ValidationError{"signals.momentum", "lookbacks_days length must match weights length"}
+	}
+	if len(cfg.Signals.Flow.LookbacksDays) != len(cfg.Signals.Flow.Weights) {
+		return ValidationError{"signals.flow", "lookbacks_days length must match weights length"}
+	}
+
 	if err := validateWeightsSum(cfg.Signals.Momentum.Weights, 1.0, 1e-6); err != nil {
 		return ValidationError{"signals.momentum.weights", err.Error()}
 	}
@@ -720,9 +738,38 @@ func Validate(cfg *Config) error {
 		return ValidationError{"execution.slippage_model.segments", "required"}
 	}
 
+	// splitting 제약 조건
+	if cfg.Execution.Splitting.Enable {
+		if cfg.Execution.Splitting.MinSlices > cfg.Execution.Splitting.MaxSlices {
+			return ValidationError{"execution.splitting", "min_slices must be <= max_slices"}
+		}
+		if cfg.Execution.Splitting.IntervalSeconds <= 0 {
+			return ValidationError{"execution.splitting.interval_seconds", "must be > 0"}
+		}
+	}
+
 	// === Exit ===
 	if cfg.Exit.Mode != "FIXED" && cfg.Exit.Mode != "ATR" {
 		return ValidationError{"exit.mode", "must be FIXED or ATR"}
+	}
+
+	// === RiskOverlay ===
+	if cfg.RiskOverlay.NasdaqAdjust.Enable {
+		// clamp: min <= max
+		clamp := cfg.RiskOverlay.NasdaqAdjust.Clamp
+		if clamp.MinEquityExposurePct > clamp.MaxEquityExposurePct {
+			return ValidationError{"risk_overlay.nasdaq_adjust.clamp", "min must be <= max"}
+		}
+
+		// trigger: 각 트리거에 ret_le 또는 ret_ge 중 하나는 반드시 존재
+		for i, trigger := range cfg.RiskOverlay.NasdaqAdjust.Triggers {
+			if trigger.NasdaqRetLe == nil && trigger.NasdaqRetGe == nil {
+				return ValidationError{
+					Field:   fmt.Sprintf("risk_overlay.nasdaq_adjust.triggers[%d]", i),
+					Message: "must have nasdaq_ret_le or nasdaq_ret_ge",
+				}
+			}
+		}
 	}
 
 	return nil
@@ -797,6 +844,7 @@ func validateWeightsSum(weights []float64, target float64, epsilon float64) erro
 package strategyconfig
 
 import (
+	"math"
 	"os"
 	"testing"
 )
@@ -864,9 +912,9 @@ func TestValidateTiers(t *testing.T) {
 	w := Weighting{
 		Method: "TIERED",
 		Tiers: []Tier{
-			{Count: 5, WeightEachPct: 0.08},
-			{Count: 10, WeightEachPct: 0.05},
-			{Count: 5, WeightEachPct: 0.02},
+			{Count: 5, WeightEachPct: 0.05},
+			{Count: 10, WeightEachPct: 0.045},
+			{Count: 5, WeightEachPct: 0.04},
 		},
 	}
 
@@ -875,10 +923,9 @@ func TestValidateTiers(t *testing.T) {
 		t.Errorf("expected count=20, got %d", w.TotalCount())
 	}
 
-	// Weight 합 = 0.40 + 0.50 + 0.10 = 1.00 (현금 제외)
-	// 실제: 0.90 (현금 0.10 별도)
+	// Weight 합 = 0.25 + 0.45 + 0.20 = 0.90 (현금 0.10 별도)
 	expectedWeight := 0.90
-	if w.TotalWeightPct() != expectedWeight {
+	if math.Abs(w.TotalWeightPct()-expectedWeight) > 1e-9 {
 		t.Errorf("expected weight=%.2f, got %.4f", expectedWeight, w.TotalWeightPct())
 	}
 }
@@ -956,9 +1003,12 @@ COMMENT ON COLUMN audit.decision_snapshots.config_yaml IS '원본 YAML 전문';
 |------|------|
 | `meta.strategy_id` | 필수 |
 | `meta.*_time` | HH:MM 형식 |
+| `meta.execution_window` | start < end |
 | `universe.filters.adtv20_min_krw` | > 0 |
 | `universe.filters.spread.formula` | 고정값 일치 |
+| `signals.momentum` | lookbacks_days 길이 = weights 길이 |
 | `signals.momentum.weights` | 합 = 1.0 |
+| `signals.flow` | lookbacks_days 길이 = weights 길이 |
 | `signals.flow.weights` | 합 = 1.0 |
 | `ranking.weights_pct` | 합 = 100 |
 | `ranking.constraints` | momentum+technical ≤ max |
@@ -968,7 +1018,11 @@ COMMENT ON COLUMN audit.decision_snapshots.config_yaml IS '원본 YAML 전문';
 | `portfolio.weighting.tiers` | count 합 = holdings.target |
 | `portfolio` | tiers + cash = 1.0 (±0.5%) |
 | `execution.slippage_model` | segments 필수 |
+| `execution.splitting` | min_slices ≤ max_slices |
+| `execution.splitting.interval_seconds` | > 0 |
 | `exit.mode` | FIXED \| ATR |
+| `risk_overlay.nasdaq_adjust.clamp` | min ≤ max |
+| `risk_overlay.nasdaq_adjust.triggers[]` | ret_le 또는 ret_ge 필수 |
 
 ### 8.3 Warn 규칙 요약
 
