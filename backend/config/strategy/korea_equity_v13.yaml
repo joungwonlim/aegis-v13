@@ -3,166 +3,142 @@
 # =============================================================================
 # SSOT: 이 파일이 모든 선정/운용/청산 파라미터의 단일 진실 소스
 # 문서: docs-site/docs/guide/strategy/stock-selection.md
+# Spec: docs-site/docs/guide/strategy/implementation-spec.md
 # =============================================================================
 
 meta:
   strategy_id: "korea_equity_v13"
-  version: "1.0.0"
+  version: "1.0.1"
   timezone: "Asia/Seoul"
-  decision_time_local: "17:00"        # 장마감 후 의사결정 (익일 주문 생성)
+  decision_time_local: "17:00"
   execution_window:
-    start: "09:05"                    # 시초가 회피
-    end: "15:10"                      # 동시호가 회피
+    start: "09:05"
+    end: "15:10"
 
 # =============================================================================
-# S1: Universe (투자 가능 풀) - 성과에 가장 큰 영향
+# S1: Universe (투자 가능 풀)
 # =============================================================================
 universe:
-  # 제외 조건 (Boolean)
-  exclude_flags:
-    trading_halt: true                # 거래정지
-    admin_issue: true                 # 관리종목
-    managed_stock: true               # 투자경고/위험
+  # 제외할 KRX 플래그 (열거형)
+  exclude_krx_flags:
+    - "TRADING_HALT"
+    - "ADMIN_ISSUE"
+    - "MANAGEMENT"
+    - "INVESTMENT_WARNING"
+    - "INVESTMENT_DANGER"
 
-  # 수치 필터 (핵심 3개 먼저 고정)
   filters:
-    marketcap_min_krw: 200_000_000_000     # 2,000억 [튜닝: 1,000~5,000억]
-    adtv20_min_krw: 20_000_000_000         # 20일 평균 거래대금 20억 [튜닝: 10~50억]
-    spread_max_pct: 0.006                   # 스프레드 ≤ 0.6% [튜닝: 0.3~1.0%]
-    price_min_krw: 1000                     # 종가 ≥ 1,000원 [튜닝: 500~5,000원]
-    ipo_days_min: 180                       # 상장 180일 이후 [튜닝: 60~365일]
+    marketcap_min_krw: 200_000_000_000   # 2,000억
+    adtv20_min_krw: 2_000_000_000        # 20억
+    price_min_krw: 1_000
+    ipo_days_min: 180
+    spread:
+      max_pct: 0.006
+      formula: "((ask1-bid1)/((ask1+bid1)/2))"
 
 # =============================================================================
 # S2: Signals (6팩터 점수화)
 # =============================================================================
 signals:
-  # 정규화 설정 (필수)
   normalization:
-    winsorize_pct: 0.015              # 상하 1.5% 윈저라이즈
-    zscore_clip: 3.0                  # z-score [-3, +3] 클리핑
-    missing_policy: "neutral"         # 결측은 0점 (중립)
-    score_range: [0, 100]             # 최종 점수 0~100
+    winsorize_pct: 0.015
+    zscore_clip: 3.0
+    score_range_min: 0
+    score_range_max: 100
+    missing_policy: "NEUTRAL"
 
-  # 모멘텀: 20D/60D/120D 가중평균
   momentum:
     lookbacks_days: [20, 60, 120]
-    weights: [0.40, 0.35, 0.25]       # 합 = 1.0
-    skip_recent_gap_days: 0           # 갭 왜곡 완화 시 1~2
+    weights: [0.40, 0.35, 0.25]
 
-  # 기술적: MA 기울기 + 52주 신고가 근접도
   technical:
     ma_short: 20
     ma_long: 60
-    slope_window: 10                  # MA 기울기 계산용
-    high52w_window: 252               # 52주 (영업일)
+    slope_window: 10
+    high52w_window: 252
 
-  # 밸류: PBR + PER
   value:
-    metrics:
-      - "pbr"
-      - "per"
-      # - "ev_ebitda"                 # 가능 시 추가 권장
-    per_cap_for_scoring: 80           # 점수화 시 PER 상한
-    prefer_lower: true
+    metrics: ["PBR", "PER"]
+    per_score_cap: 80
 
-  # 퀄리티: ROE, 영업이익률, 부채비율
   quality:
-    metrics:
-      - "roe_ttm"
-      - "op_margin_ttm"
-      - "debt_ratio"
-    prefer_higher: ["roe_ttm", "op_margin_ttm"]
-    prefer_lower: ["debt_ratio"]
+    metrics: ["ROE_TTM", "OP_MARGIN_TTM", "DEBT_RATIO"]
 
-  # 수급: 외인/기관 순매수 (거래대금 대비 정규화)
   flow:
+    actors: ["FOREIGN", "INSTITUTION"]
     lookbacks_days: [5, 20]
     weights: [0.55, 0.45]
-    normalize_by: "adtv20"            # 핵심: 절대금액이 아닌 비율
-    actors: ["foreign", "institution"]
+    normalize_by: "ADTV20"
 
-  # 이벤트: 급등/공시/실적 서프라이즈
   event:
-    ttl_days: 10                      # 이벤트 유효기간 [튜닝: 5~30일]
-    types:
-      - "gap_up"
-      - "surge"
-      - "disclosure"
-      - "earnings_surprise"
+    ttl_days: 10
+    types: ["GAP_UP", "SURGE", "DISCLOSURE", "EARNINGS_SURPRISE"]
 
 # =============================================================================
-# S3: Screening (Hard Cut) - 수치로 정의
+# S3: Screening (Hard Cut)
 # =============================================================================
 screening:
-  # 급락 제외
-  drawdown_exclusion:
-    day1_return_min: -0.09            # 1일 -9% 이하 제외 [튜닝: -7~-12%]
-    day5_return_min: -0.18            # 5일 -18% 이하 제외 [튜닝: -12~-25%]
+  drawdown:
+    day1_return_min: -0.09
+    day5_return_min: -0.18
 
-  # 과열 제외 (선택)
   overheat:
     enable: true
-    day5_return_max: 0.35             # 5일 +35% 초과 제외 [튜닝: +25~+60%]
+    day5_return_max: 0.35
 
-  # 펀더멘털 컷
   fundamentals:
-    net_income_ttm_min: 0             # TTM 순이익 < 0 제외
-    per_max: 60                       # PER 60 초과 제외 [튜닝: 40~100]
+    net_income_ttm_min: 0
+    per_max: 60
 
-  # 변동성 컷
-  volatility_cut:
+  volatility:
     enable: true
-    vol20_exclude_top_pct: 0.10       # 20D 변동성 상위 10% 제외 [튜닝: 5~20%]
+    vol20_exclude_top_pct: 0.10
 
 # =============================================================================
 # S4: Ranking (가중치)
 # =============================================================================
 ranking:
-  # 가중치 (합 = 100)
   weights_pct:
-    momentum: 25                      # [튜닝: 20~35]
-    flow: 20                          # [튜닝: 10~30]
-    technical: 15                     # [튜닝: 10~25]
-    event: 15                         # [튜닝: 5~20]
-    value: 15                         # [튜닝: 10~30]
-    quality: 10                       # [튜닝: 5~15]
+    momentum: 25
+    flow: 20
+    technical: 15
+    event: 15
+    value: 15
+    quality: 10
 
-  # 제약 조건
   constraints:
-    momentum_plus_technical_max_pct: 50   # 모멘텀+기술 합 ≤ 50%
-    max_monthly_weight_change_pctpt: 5    # 월 단위 ±5p 제한
+    momentum_plus_technical_max_pct: 50
+    monthly_weight_change_max_pctpt: 5
 
 # =============================================================================
 # S5: Portfolio (포트폴리오 구성)
 # =============================================================================
 portfolio:
-  # 종목 수
   holdings:
-    target: 20                        # [튜닝: 15~25]
+    target: 20
     min: 15
     max: 20
 
-  # 비중 배분
   allocation:
-    cash_target_pct: 0.10             # 현금 10% [튜닝: 5~20%]
-    position_min_pct: 0.04            # 종목당 최소 4% [튜닝: 2~5%]
-    position_max_pct: 0.10            # 종목당 최대 10% [튜닝: 8~15%]
-    sector_max_pct: 0.25              # 섹터당 25% [튜닝: 15~35%]
-    turnover_daily_max_pct: 0.20      # 일 회전율 20% [튜닝: 10~35%]
+    cash_target_pct: 0.10
+    position_min_pct: 0.04
+    position_max_pct: 0.10
+    sector_max_pct: 0.25
+    turnover_daily_max_pct: 0.20
 
-  # 비중 산정 방식 (Tiered)
-  weighting_method:
-    type: "tiered"
+  weighting:
+    method: "TIERED"
     tiers:
-      - { count: 5,  weight_each_pct: 0.09 }    # 상위 5개: 9%씩 = 45%
-      - { count: 10, weight_each_pct: 0.05 }    # 중간 10개: 5%씩 = 50%
-      - { count: 5,  weight_each_pct: 0.02 }    # 하위 5개: 2%씩 = 10% (-> 총 105%, 정규화 필요)
-    enforce_position_bounds: true
+      # 합: 5×5% + 10×4.5% + 5×4% = 25% + 45% + 20% = 90%
+      # 주식 90% + 현금 10% = 100%
+      # 모든 tier가 position_min_pct(4%) 이상 충족
+      - { count: 5,  weight_each_pct: 0.05 }
+      - { count: 10, weight_each_pct: 0.045 }
+      - { count: 5,  weight_each_pct: 0.04 }
 
-  # 유동성 캡 (필수)
   liquidity_caps:
-    max_order_to_adtv20_pct: 0.02         # 주문/ADTV20 ≤ 2%
-    max_participation_per_minute_pct: 0.10 # 분당 참여율 ≤ 10%
+    max_order_to_adtv20_pct: 0.02
+    max_participation_per_minute_pct: 0.10
 
 # =============================================================================
 # Execution (주문 집행)
@@ -170,72 +146,67 @@ portfolio:
 execution:
   order_type: "LIMIT"
   limit_policy:
-    buy: "ASK1"                       # 매수: 매도1호가
-    sell: "BID1"                      # 매도: 매수1호가
+    buy: "ASK1"
+    sell: "BID1"
 
-  avoid_open_minutes: 5               # 장 시작 5분 회피
-  avoid_close_minutes: 10             # 장 마감 10분 회피
+  # avoid_open_minutes, avoid_close_minutes 삭제됨
+  # execution_window.start/end로 통합
 
-  # 분할 주문
   splitting:
     enable: true
-    split_when_order_to_adtv20_pct_ge: 0.02
+    trigger_order_to_adtv20_pct_ge: 0.02
     min_slices: 3
     max_slices: 8
-    slice_interval_seconds: 90
+    interval_seconds: 90
 
-  # 슬리피지 모델 (백테스트 필수 반영)
   slippage_model:
-    by_liquidity:
-      - { adtv20_min_krw: 50_000_000_000, slippage_pct: 0.0025 }   # ADTV 50억+: 0.25%
-      - { adtv20_min_krw: 20_000_000_000, slippage_pct: 0.0045 }   # ADTV 20억+: 0.45%
-      - { adtv20_min_krw: 0,              slippage_pct: 0.0070 }   # 그 외: 0.70%
-
-# =============================================================================
-# Risk Overlay (리스크 조정)
-# =============================================================================
-risk_overlay:
-  # NASDAQ 2차 조정 (08시)
-  nasdaq_adjust:
-    enable: true
-    run_time_local: "08:00"
-    triggers:
-      - { nasdaq_ret_le: -0.030, scale_equity_pct: -0.30 }   # -3% 이하: -30% 축소
-      - { nasdaq_ret_le: -0.015, scale_equity_pct: -0.15 }   # -1.5% 이하: -15% 축소
-      - { nasdaq_ret_ge:  0.015, scale_equity_pct:  0.10 }   # +1.5% 이상: +10% 확대
-    clamp:
-      min_equity_exposure_pct: 0.60
-      max_equity_exposure_pct: 1.00
+    segments:
+      - { adtv20_min_krw: 5_000_000_000, slippage_pct: 0.0025 }
+      - { adtv20_min_krw: 2_000_000_000, slippage_pct: 0.0045 }
+      - { adtv20_min_krw: 0,             slippage_pct: 0.0070 }
 
 # =============================================================================
 # Exit (청산 전략)
 # =============================================================================
 exit:
-  mode: "atr"                         # "fixed" | "atr" (ATR 권장)
+  mode: "ATR"
 
-  # Option A: 고정형
   fixed:
-    stop_loss_pct: -0.07              # 초기 손절 -7% [튜닝: -5~-12%]
-    trail_activate_pct: 0.06          # +6%부터 트레일링 [튜닝: +4~+10%]
-    trail_drawdown_pct: -0.05         # 고점 대비 -5% [튜닝: -3~-8%]
-    time_stop_days: 10                # 10일 타임스탑 [튜닝: 7~15일]
+    stop_loss_pct: -0.07
+    trail_activate_pct: 0.06
+    trail_drawdown_pct: -0.05
+    time_stop_days: 10
     partial_take_profit:
       enable: true
-      trigger_ret_pct: 0.18           # +18% 도달 시
-      sell_fraction_pct: 0.50         # 50% 부분익절
+      trigger_ret_pct: 0.18
+      sell_fraction_pct: 0.50
 
-  # Option B: ATR 연동 (권장)
   atr:
     window_days: 20
-    stop_mult: 2.0                    # 초기 손절: max(7%, 2.0 × ATR20)
-    trail_mult: 1.5                   # 트레일링: max(5%, 1.5 × ATR20)
+    stop_mult: 2.0
+    trail_mult: 1.5
     min_stop_pct: 0.07
     min_trail_pct: 0.05
+
+# =============================================================================
+# Risk Overlay (리스크 조정)
+# =============================================================================
+risk_overlay:
+  nasdaq_adjust:
+    enable: true
+    run_time_local: "08:00"
+    triggers:
+      - { nasdaq_ret_le: -0.030, scale_equity_pct: -0.30 }
+      - { nasdaq_ret_le: -0.015, scale_equity_pct: -0.15 }
+      - { nasdaq_ret_ge:  0.015, scale_equity_pct:  0.10 }
+    clamp:
+      min_equity_exposure_pct: 0.60
+      max_equity_exposure_pct: 1.00
 
 # =============================================================================
 # Backtest Costs (백테스트 비용 가정)
 # =============================================================================
 backtest_costs:
-  commission_bps: 1.5                 # 수수료 (증권사별 상이)
-  tax_bps: 23.0                       # 매도세 (코스피 0.18%, 코스닥 0.23%)
-  apply_slippage_model: true          # 슬리피지 모델 적용
+  commission_bps: 1.5
+  tax_bps: 23.0
+  apply_slippage_model: true
