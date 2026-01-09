@@ -79,32 +79,53 @@ func runFetcherCollect(cmd *cobra.Command, args []string) error {
 }
 
 func collectKIS() error {
-	fmt.Println("📊 KIS 데이터 수집 시작...")
-	fmt.Println("   - 실시간 시세 데이터")
-	fmt.Println("   - 체결 데이터")
-	fmt.Println("   - 호가 데이터")
 	fmt.Println()
-	fmt.Println("⚠️  구현 필요: internal/external/kis/")
+	PrintSeparator()
+	fmt.Println("📊 KIS 데이터 수집 시작...")
+	PrintSeparator()
+
+	items := []string{
+		"실시간 시세 데이터",
+		"체결 데이터",
+		"호가 데이터",
+	}
+	PrintList(items)
+	fmt.Println()
+	PrintWarning("구현 필요: internal/external/kis/")
 	return nil
 }
 
 func collectDART() error {
-	fmt.Println("📄 DART 공시 데이터 수집 시작...")
-	fmt.Println("   - 정기보고서")
-	fmt.Println("   - 주요사항보고")
-	fmt.Println("   - 재무제표")
 	fmt.Println()
-	fmt.Println("⚠️  구현 필요: internal/external/dart/")
+	PrintSeparator()
+	fmt.Println("📄 DART 공시 데이터 수집 시작...")
+	PrintSeparator()
+
+	items := []string{
+		"정기보고서",
+		"주요사항보고",
+		"재무제표",
+	}
+	PrintList(items)
+	fmt.Println()
+	PrintWarning("구현 필요: internal/external/dart/")
 	return nil
 }
 
 func collectNaver() error {
-	fmt.Println("🔍 Naver Finance 데이터 수집 시작...")
-	fmt.Println("   - 종목 정보")
-	fmt.Println("   - 투자자별 매매 동향")
-	fmt.Println("   - 신용/대차 잔고")
 	fmt.Println()
-	fmt.Println("⚠️  구현 필요: internal/external/naver/")
+	PrintSeparator()
+	fmt.Println("🔍 Naver Finance 데이터 수집 시작...")
+	PrintSeparator()
+
+	items := []string{
+		"종목 정보",
+		"투자자별 매매 동향",
+		"신용/대차 잔고",
+	}
+	PrintList(items)
+	fmt.Println()
+	PrintWarning("구현 필요: internal/external/naver/")
 	return nil
 }
 

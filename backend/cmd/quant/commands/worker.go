@@ -94,34 +94,44 @@ func runWorkerStart(cmd *cobra.Command, args []string) error {
 }
 
 func processJob(jobID int) {
-	timestamp := time.Now().Format("15:04:05")
-
-	// Job separator
-	fmt.Println()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("🔄 Job #%d | %s\n", jobID, timestamp)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println()
-
-	// Job details
+	startTime := time.Now()
+	timestamp := startTime.Format("15:04:05")
 	jobType := getJobType(jobID)
-	fmt.Printf("📋 Job Type: %s\n", jobType)
-	fmt.Printf("⏱️  Started: %s\n\n", timestamp)
+	jobTag := getJobTag(jobType)
 
-	// Progress indicators
-	steps := getJobSteps(jobType)
-	for i, step := range steps {
-		fmt.Printf("   [%d/%d] %s", i+1, len(steps), step)
-		time.Sleep(200 * time.Millisecond)
-		fmt.Println(" ✅")
+	// Build job metadata
+	meta := JobMetadata{
+		JobID:     jobID,
+		JobType:   jobType,
+		Tag:       jobTag,
+		Timestamp: timestamp,
 	}
 
-	// Job completion
-	fmt.Println()
-	fmt.Printf("✅ Job #%d completed in %.2fs\n", jobID, time.Since(parseTime(timestamp)).Seconds())
-	fmt.Println()
-	fmt.Println("⚠️  실제 구현 필요: internal/queue/worker.go")
-	fmt.Println()
+	// Add period for ranking jobs
+	if jobType == "Fetch Ranking Data" {
+		meta.Period = GetCurrentPeriod()
+		meta.Symbols = "all"
+	}
+
+	// Print job header (common format)
+	PrintJobHeader(meta)
+
+	// Execute job steps with progress tracking
+	steps := getJobSteps(jobType)
+	totalSteps := len(steps)
+
+	for i, step := range steps {
+		currentStep := i + 1
+		PrintProgress(jobTag, step, currentStep, totalSteps)
+		SimulateProcessing(200)
+	}
+
+	// Print job completion (common format)
+	duration := time.Since(startTime).Seconds()
+	PrintJobCompletion(jobID, duration)
+
+	// Warning message
+	PrintWarning("실제 구현 필요: internal/queue/worker.go")
 }
 
 func getJobType(jobID int) string {
@@ -129,6 +139,7 @@ func getJobType(jobID int) string {
 		"Collect KIS Prices",
 		"Collect DART Reports",
 		"Collect Naver Data",
+		"Fetch Ranking Data",
 		"Process Signals",
 		"Update Rankings",
 	}
@@ -158,6 +169,17 @@ func getJobSteps(jobType string) []string {
 			"Parsing HTML data...",
 			"Saving to database...",
 		}
+	case "Fetch Ranking Data":
+		return []string{
+			"Fetched trading/KOSPI: 100 items",
+			"Fetched trading/KOSDAQ: 100 items",
+			"Fetched quantHigh/KOSPI: 100 items",
+			"Fetched quantHigh/KOSDAQ: 100 items",
+			"Fetched quantLow/KOSPI: 100 items",
+			"Fetched quantLow/KOSDAQ: 100 items",
+			"Fetched priceTop/KOSPI: 100 items",
+			"Fetched priceTop/KOSDAQ: 100 items",
+		}
 	case "Process Signals":
 		return []string{
 			"Loading price data...",
@@ -174,6 +196,25 @@ func getJobSteps(jobType string) []string {
 		}
 	default:
 		return []string{"Processing..."}
+	}
+}
+
+func getJobTag(jobType string) string {
+	switch jobType {
+	case "Collect KIS Prices":
+		return "KIS"
+	case "Collect DART Reports":
+		return "DART"
+	case "Collect Naver Data":
+		return "Naver"
+	case "Fetch Ranking Data":
+		return "Ranking"
+	case "Process Signals":
+		return "Signals"
+	case "Update Rankings":
+		return "Rankings"
+	default:
+		return "Worker"
 	}
 }
 
