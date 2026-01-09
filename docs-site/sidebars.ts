@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
         'guide/architecture/system-overview',
         'guide/architecture/data-flow',
         'guide/architecture/contracts',
+        'guide/architecture/data-requirements',
       ],
     },
     {
