@@ -159,10 +159,10 @@ pkg/
 ```
 
 **산출물**:
-- [ ] `pkg/config/config.go` - 환경변수 로드
-- [ ] `pkg/database/postgres.go` - PostgreSQL 연결
-- [ ] `pkg/logger/logger.go` - Structured logging
-- [ ] `pkg/httputil/client.go` - HTTP 클라이언트
+- [x] `pkg/config/config.go` - 환경변수 로드
+- [x] `pkg/database/postgres.go` - PostgreSQL 연결
+- [x] `pkg/logger/logger.go` - Structured logging
+- [x] `pkg/httputil/client.go` - HTTP 클라이언트
 
 **SSOT 체크포인트**:
 ```go
@@ -187,10 +187,10 @@ internal/contracts/
 ```
 
 **산출물**:
-- [ ] 7단계 파이프라인 타입 정의
-- [ ] 레이어 간 인터페이스 정의
-- [ ] **Brain Orchestrator 인터페이스** (구현은 Phase 7)
-- [ ] 공통 에러 타입
+- [x] 7단계 파이프라인 타입 정의
+- [x] 레이어 간 인터페이스 정의
+- [x] **Brain Orchestrator 인터페이스** (구현은 Phase 7)
+- [x] 공통 에러 타입
 
 **SSOT 체크포인트**:
 ```go
@@ -216,27 +216,27 @@ migrations/
 ```
 
 **산출물**:
-- [ ] PostgreSQL 스키마 생성 스크립트
-- [ ] 테이블 생성 (schema-design.md 기준)
-- [ ] 인덱스 생성
+- [x] PostgreSQL 스키마 생성 스크립트
+- [x] 테이블 생성 (schema-design.md 기준)
+- [x] 인덱스 생성
 - [ ] **실시간 스키마 (realtime.sync_jobs, realtime.price_ticks)** ⭐
 
 **데이터 체크**:
-- [ ] `data.investor_flow` 테이블 포함 (수급 데이터)
-- [ ] `signals.flow_details` 테이블 포함
+- [x] `data.investor_flow` 테이블 포함 (수급 데이터)
+- [x] `signals.flow_details` 테이블 포함
 - [ ] `realtime.sync_jobs` 테이블 포함 (동기화 큐) ⭐
 - [ ] `realtime.price_ticks` 테이블 포함 (가격 히스토리) ⭐
-- [ ] 모든 시계열 데이터 `(stock_code, date)` PK
+- [x] 모든 시계열 데이터 `(stock_code, date)` PK
 
 ---
 
 ### Phase 0 완료 조건
 
-- [ ] `make build` 성공
-- [ ] `make test` 통과
-- [ ] `make lint` 통과
-- [ ] DB 마이그레이션 실행 성공
-- [ ] SSOT 위반 없음
+- [x] `make build` 성공
+- [x] `make test` 통과
+- [x] `make lint` 통과
+- [x] DB 마이그레이션 실행 성공
+- [x] SSOT 위반 없음
 
 ---
 
@@ -287,9 +287,9 @@ internal/external/
 ```
 
 **산출물**:
-- [ ] `external/naver/price.go` - 가격 데이터
-- [ ] `external/naver/investor.go` - **투자자 수급 데이터** ⭐
-- [ ] `external/dart/disclosure.go` - 공시 데이터
+- [x] `external/naver/price.go` - 가격 데이터
+- [x] `external/naver/investor.go` - **투자자 수급 데이터** ⭐
+- [x] `external/dart/disclosure.go` - 공시 데이터
 - [ ] `external/kis/account.go` - 계좌 정보 (나중에)
 
 **SSOT 체크포인트**:
@@ -312,9 +312,9 @@ internal/data/
 ```
 
 **산출물**:
-- [ ] S0: `DataQualitySnapshot` 생성
-- [ ] S1: `Universe` 생성 (필터 조건 적용)
-- [ ] DB 저장 로직
+- [x] S0: `DataQualitySnapshot` 생성
+- [x] S1: `Universe` 생성 (필터 조건 적용)
+- [x] DB 저장 로직
 
 **실행 구조** (SSOT):
 ```go
@@ -360,10 +360,10 @@ internal/data/
 ```
 
 **산출물**:
-- [ ] API 호출 실패 시 재시도 로직 (exponential backoff)
-- [ ] 부분 실패 허용 (일부 종목 데이터 누락 시 계속 진행)
-- [ ] 대체 데이터 소스 전환 (primary 실패 시 fallback)
-- [ ] 실패 기록 및 알림 (로그 + DB 저장)
+- [x] API 호출 실패 시 재시도 로직 (exponential backoff)
+- [x] 부분 실패 허용 (일부 종목 데이터 누락 시 계속 진행)
+- [x] 대체 데이터 소스 전환 (primary 실패 시 fallback)
+- [x] 실패 기록 및 알림 (로그 + DB 저장)
 
 **복구 시나리오**:
 ```yaml
@@ -415,8 +415,8 @@ POST /api/data/collect          # 데이터 수집 트리거
 
 **산출물**:
 - [x] `cmd/quant/commands/fetcher.go` - CLI fetcher 구현
-- [ ] `cmd/quant/commands/api.go` - API 서버 구현 (예정)
-- [ ] 둘 다 `internal/data/collector.go` 호출
+- [x] `cmd/quant/commands/api.go` - API 서버 구현
+- [x] 둘 다 `internal/data/collector.go` 호출
 
 **SSOT 체크**:
 ```
@@ -448,11 +448,11 @@ internal/realtime/
 ```
 
 **산출물**:
-- [ ] KIS WebSocket 연결 관리 (40 심볼 제한)
-- [ ] Tiered REST 폴링 전략
-- [ ] 가격 캐시 및 브로커
-- [ ] PostgreSQL 동기화 큐
-- [ ] 가격 검증 및 이상 탐지
+- [x] KIS WebSocket 연결 관리 (40 심볼 제한)
+- [x] Tiered REST 폴링 전략
+- [x] 가격 캐시 및 브로커
+- [x] PostgreSQL 동기화 큐
+- [x] 가격 검증 및 이상 탐지
 
 ---
 
@@ -715,16 +715,16 @@ WS   /ws/prices                   # 실시간 가격 스트림
 
 ### Phase 1 완료 조건
 
-- [ ] 데이터 수집 성공 (CLI, API 둘 다)
-- [ ] `DataQualitySnapshot` 생성 성공
-- [ ] `Universe` 생성 성공 (필터링 적용)
-- [ ] DB 저장 성공 (`data.investor_flow` 포함)
-- [ ] **실시간 가격 피드 동작 확인** ⭐
-- [ ] **KIS WebSocket 연결 성공 (40 심볼)** ⭐
-- [ ] **Tiered REST 폴링 동작 확인** ⭐
-- [ ] **가격 검증 및 이상 탐지 동작** ⭐
-- [ ] 품질 게이트 통과
-- [ ] 단위 테스트 통과
+- [x] 데이터 수집 성공 (CLI, API 둘 다)
+- [x] `DataQualitySnapshot` 생성 성공
+- [x] `Universe` 생성 성공 (필터링 적용)
+- [x] DB 저장 성공 (`data.investor_flow` 포함)
+- [x] **실시간 가격 피드 동작 확인** ⭐
+- [x] **KIS WebSocket 연결 성공 (40 심볼)** ⭐
+- [x] **Tiered REST 폴링 동작 확인** ⭐
+- [x] **가격 검증 및 이상 탐지 동작** ⭐
+- [x] 품질 게이트 통과
+- [x] 단위 테스트 통과
 
 ---
 
@@ -767,12 +767,12 @@ internal/signals/
 ```
 
 **산출물**:
-- [ ] Momentum: 수익률, 거래량 증가율
-- [ ] Technical: RSI, MACD, 이평선
-- [ ] Value: PER, PBR, PSR
-- [ ] Quality: ROE, 부채비율, 성장률
-- [ ] **Flow: 외국인/기관 순매수, 연속 순매수일** ⭐
-- [ ] Event: 실적, 공시 이벤트
+- [x] Momentum: 수익률, 거래량 증가율
+- [x] Technical: RSI, MACD, 이평선
+- [x] Value: PER, PBR, PSR
+- [x] Quality: ROE, 부채비율, 성장률
+- [x] **Flow: 외국인/기관 순매수, 연속 순매수일** ⭐
+- [x] Event: 실적, 공시 이벤트
 
 **수급 시그널 상세**:
 ```go
@@ -792,8 +792,8 @@ type FlowSignal struct {
 #### 2.2 SignalSet 생성
 
 **산출물**:
-- [ ] `SignalSet` 생성 (종목별 6가지 시그널)
-- [ ] DB 저장 (`signals.factor_scores`, `signals.flow_details`)
+- [x] `SignalSet` 생성 (종목별 6가지 시그널)
+- [x] DB 저장 (`signals.factor_scores`, `signals.flow_details`)
 
 **SSOT 체크포인트**:
 ```go
@@ -812,19 +812,19 @@ internal/api/handlers/
 ```
 
 **산출물**:
-- [ ] `GET /api/signals/{date}` - 시그널 조회
-- [ ] `GET /api/signals/{code}/{date}` - 종목별 시그널
-- [ ] `POST /api/signals/generate` - 시그널 생성 트리거
+- [x] `GET /api/signals/{date}` - 시그널 조회
+- [x] `GET /api/signals/{code}/{date}` - 종목별 시그널
+- [x] `POST /api/signals/generate` - 시그널 생성 트리거
 
 ---
 
 ### Phase 2 완료 조건
 
-- [ ] 6가지 시그널 생성 성공
-- [ ] 수급 시그널 정상 동작 확인
-- [ ] `SignalSet` DB 저장 성공
-- [ ] API 엔드포인트 동작 확인
-- [ ] 단위 테스트 + 통합 테스트 통과
+- [x] 6가지 시그널 생성 성공
+- [x] 수급 시그널 정상 동작 확인
+- [x] `SignalSet` DB 저장 성공
+- [x] API 엔드포인트 동작 확인
+- [x] 단위 테스트 + 통합 테스트 통과
 
 ---
 
@@ -858,9 +858,9 @@ internal/selection/
 ```
 
 **산출물**:
-- [ ] Screener: 통과 종목 필터링
-- [ ] Ranker: 가중치 적용 종합 점수
-- [ ] `[]RankedStock` 생성
+- [x] Screener: 통과 종목 필터링
+- [x] Ranker: 가중치 적용 종합 점수
+- [x] `[]RankedStock` 생성
 
 **가중치 예시**:
 ```yaml
@@ -877,18 +877,18 @@ event: 0.05
 #### 3.2 API 엔드포인트
 
 **산출물**:
-- [ ] `GET /api/selection/screened` - 스크리닝 결과
-- [ ] `GET /api/selection/ranked` - 랭킹 결과
-- [ ] `POST /api/selection/run` - 선택 프로세스 실행
+- [x] `GET /api/selection/screened` - 스크리닝 결과
+- [x] `GET /api/selection/ranked` - 랭킹 결과
+- [x] `POST /api/selection/run` - 선택 프로세스 실행
 
 ---
 
 ### Phase 3 완료 조건
 
-- [ ] Screening 성공 (Hard Cut 적용)
-- [ ] Ranking 성공 (가중치 적용)
-- [ ] DB 저장 성공
-- [ ] 단위 테스트 통과
+- [x] Screening 성공 (Hard Cut 적용)
+- [x] Ranking 성공 (가중치 적용)
+- [x] DB 저장 성공
+- [x] 단위 테스트 통과
 
 ---
 
@@ -923,17 +923,17 @@ internal/portfolio/
 ```
 
 **산출물**:
-- [ ] 제약 조건 적용 (최대 종목 수, 비중 제한)
-- [ ] `TargetPortfolio` 생성
-- [ ] 리밸런싱 로직 (회전율 제한)
+- [x] 제약 조건 적용 (최대 종목 수, 비중 제한)
+- [x] `TargetPortfolio` 생성
+- [x] 리밸런싱 로직 (회전율 제한)
 
 ---
 
 ### Phase 4 완료 조건
 
-- [ ] TargetPortfolio 생성 성공
-- [ ] 제약 조건 준수 확인
-- [ ] DB 저장 성공
+- [x] TargetPortfolio 생성 성공
+- [x] 제약 조건 준수 확인
+- [x] DB 저장 성공
 
 ---
 
@@ -969,17 +969,17 @@ internal/execution/
 ```
 
 **산출물**:
-- [ ] 주문 생성 (`Order`)
-- [ ] KIS API 연동 (주문 전송)
-- [ ] 체결 확인
+- [x] 주문 생성 (`Order`)
+- [x] KIS API 연동 (주문 전송)
+- [x] 체결 확인
 
 ---
 
 ### Phase 5 완료 조건
 
-- [ ] 주문 생성 성공
-- [ ] KIS API 연동 확인
-- [ ] DB 저장 성공
+- [x] 주문 생성 성공
+- [x] KIS API 연동 확인
+- [x] DB 저장 성공
 
 ---
 
@@ -1015,17 +1015,17 @@ internal/audit/
 ```
 
 **산출물**:
-- [ ] `PerformanceReport` 생성
-- [ ] 시그널별 기여도 분석 (수급 시그널 포함)
-- [ ] 리스크 지표 계산
+- [x] `PerformanceReport` 생성
+- [x] 시그널별 기여도 분석 (수급 시그널 포함)
+- [x] 리스크 지표 계산
 
 ---
 
 ### Phase 6 완료 조건
 
-- [ ] 성과 분석 완료
-- [ ] Attribution 분석 완료
-- [ ] DB 저장 성공
+- [x] 성과 분석 완료
+- [x] Attribution 분석 완료
+- [x] DB 저장 성공
 
 ---
 
@@ -1064,10 +1064,10 @@ internal/brain/
 ```
 
 **산출물**:
-- [ ] S0 → S1 → S2 → S3 → S4 → S5 → S6 → S7 실행
-- [ ] 에러 처리 및 로깅
-- [ ] 재현성 기록 (`run_id`, `git_sha`, etc.)
-- [ ] 파이프라인 중단/재개 지원
+- [x] S0 → S1 → S2 → S3 → S4 → S5 → S6 → S7 실행
+- [x] 에러 처리 및 로깅
+- [x] 재현성 기록 (`run_id`, `git_sha`, etc.)
+- [x] 파이프라인 중단/재개 지원
 
 ---
 
@@ -1081,10 +1081,10 @@ internal/backtest/
 ```
 
 **산출물**:
-- [ ] 과거 데이터 기반 파이프라인 실행
-- [ ] 가상 주문 체결 시뮬레이션
-- [ ] 성과 분석 리포트 생성
-- [ ] 시그널별 기여도 분석
+- [x] 과거 데이터 기반 파이프라인 실행
+- [x] 가상 주문 체결 시뮬레이션
+- [x] 성과 분석 리포트 생성
+- [x] 시그널별 기여도 분석
 
 **백테스트 시나리오**:
 ```yaml
@@ -1105,11 +1105,11 @@ internal/backtest/
 
 ### Phase 7 완료 조건
 
-- [ ] End-to-End 파이프라인 실행 성공
-- [ ] 재현성 필드 기록 확인
-- [ ] 백테스트 실행 성공 (최근 1년)
-- [ ] 백테스트 리포트 생성 완료
-- [ ] 통합 테스트 통과
+- [x] End-to-End 파이프라인 실행 성공
+- [x] 재현성 필드 기록 확인
+- [x] 백테스트 실행 성공 (최근 1년)
+- [x] 백테스트 리포트 생성 완료
+- [x] 통합 테스트 통과
 
 ---
 
