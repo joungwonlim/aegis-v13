@@ -81,7 +81,8 @@ type InvestorFlowData struct {
 
 // MarketCapData represents market capitalization
 type MarketCapData struct {
-	StockCode string
-	TradeDate time.Time
-	MarketCap int64
+	StockCode         string
+	TradeDate         time.Time
+	MarketCap         int64 // 시가총액 (원)
+	SharesOutstanding int64 // 발행주식수
 }

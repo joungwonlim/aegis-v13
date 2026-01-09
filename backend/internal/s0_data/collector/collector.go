@@ -437,3 +437,40 @@ func (c *Collector) FetchMarketTrends(ctx context.Context) error {
 
 	return nil
 }
+
+// FetchMarketCaps fetches market capitalization for all stocks
+// ⭐ SSOT: 시가총액 수집은 이 함수에서만
+func (c *Collector) FetchMarketCaps(ctx context.Context) error {
+	c.logger.Info("Starting market cap collection")
+
+	allCaps := []naver.MarketCapData{}
+
+	// Fetch KOSPI market caps
+	kospiCaps, err := c.naverClient.FetchAllMarketCaps(ctx, "KOSPI")
+	if err != nil {
+		return fmt.Errorf("fetch KOSPI market caps: %w", err)
+	}
+	allCaps = append(allCaps, kospiCaps...)
+
+	c.logger.WithField("count", len(kospiCaps)).Info("Fetched KOSPI market caps")
+
+	// Fetch KOSDAQ market caps
+	kosdaqCaps, err := c.naverClient.FetchAllMarketCaps(ctx, "KOSDAQ")
+	if err != nil {
+		return fmt.Errorf("fetch KOSDAQ market caps: %w", err)
+	}
+	allCaps = append(allCaps, kosdaqCaps...)
+
+	c.logger.WithField("count", len(kosdaqCaps)).Info("Fetched KOSDAQ market caps")
+
+	// Save to database
+	if len(allCaps) > 0 {
+		if err := c.repo.SaveMarketCaps(ctx, allCaps); err != nil {
+			return fmt.Errorf("save market caps: %w", err)
+		}
+
+		c.logger.WithField("total_count", len(allCaps)).Info("Saved market caps")
+	}
+
+	return nil
+}

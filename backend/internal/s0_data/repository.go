@@ -366,3 +366,43 @@ func (r *Repository) SaveMarketTrend(ctx context.Context, indexName string, data
 
 	return nil
 }
+
+// SaveMarketCaps saves market capitalization data to the database (bulk upsert)
+// ⭐ SSOT: 시가총액 데이터 저장은 이 함수에서만
+func (r *Repository) SaveMarketCaps(ctx context.Context, caps []naver.MarketCapData) error {
+	if len(caps) == 0 {
+		return nil
+	}
+
+	query := `
+		INSERT INTO data.market_cap (
+			stock_code, trade_date, market_cap, shares_outstanding, created_at
+		) VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
+			market_cap = EXCLUDED.market_cap,
+			shares_outstanding = EXCLUDED.shares_outstanding,
+			updated_at = NOW()
+	`
+
+	// Batch insert using transactions
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for _, cap := range caps {
+		_, err := tx.Exec(ctx, query,
+			cap.StockCode, cap.TradeDate, cap.MarketCap, cap.SharesOutstanding,
+		)
+		if err != nil {
+			return fmt.Errorf("insert market cap for %s: %w", cap.StockCode, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}

@@ -76,10 +76,11 @@ internal/
 **완료** (2026-01-10):
 - ✅ DART/KRX 데이터를 Collector에 통합 완료
 - ✅ Repository에 SaveDisclosures, SaveMarketTrend 메서드 추가
+- ✅ 시가총액 수집 로직 추가 (Naver Ranking API 사용)
+- ✅ Repository에 SaveMarketCaps 메서드 추가
 
 **TODO**:
 - `scheduler/` (스케줄러 - 일정 관리)
-- 시가총액 계산 로직 추가 (가격 × 발행주식수)
 - 종목 마스터 데이터 수집 로직
 
 ---
@@ -158,6 +159,9 @@ func (c *Collector) FetchDisclosures(ctx context.Context, from, to time.Time) er
 
 // ✅ 시장 지표 수집 (KRX)
 func (c *Collector) FetchMarketTrends(ctx context.Context) error
+
+// ✅ 시가총액 수집 (Naver)
+func (c *Collector) FetchMarketCaps(ctx context.Context) error
 ```
 
 **특징**:
@@ -230,6 +234,31 @@ type MarketTrendData struct {
 - **Naver API 프록시 사용**: `https://m.stock.naver.com/api/index/{index}/trend`
 - **복잡한 포맷 파싱**: "+1,459,781", "-1,240,182" 형식 처리
 - **시장 지표 제공**: KOSPI, KOSDAQ별 투자자 수급
+
+### Market Cap Client 구현 ⭐ 신규
+
+```go
+// internal/external/naver/market_cap.go
+
+// FetchAllMarketCaps: 전체 종목 시가총액 수집
+func (c *Client) FetchAllMarketCaps(ctx context.Context, market string) ([]MarketCapData, error)
+
+// FetchMarketCapForStock: 특정 종목 시가총액 조회
+func (c *Client) FetchMarketCapForStock(ctx context.Context, stockCode string) (*MarketCapData, error)
+
+type MarketCapData struct {
+    StockCode         string
+    TradeDate         time.Time
+    MarketCap         int64 // 시가총액 (원)
+    SharesOutstanding int64 // 발행주식수
+}
+```
+
+**특징**:
+- **Naver Ranking API 활용**: `https://stock.naver.com/api/domestic/market/stock/default`
+- **페이지네이션 지원**: KOSPI/KOSDAQ 각각 최대 15페이지 (1500종목)
+- **발행주식수 포함**: 시가총액과 함께 발행주식수도 수집
+- **실시간 데이터**: 시장 거래 시간 기준 현재가 기반 시가총액
 
 ---
 
