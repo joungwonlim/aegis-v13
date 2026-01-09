@@ -123,21 +123,21 @@ func (a *auditor) Attribution(ctx context.Context, period string) ([]Attribution
     attrs := make([]Attribution, 0)
 
     // 팩터별 기여도 계산 (SSOT: data-flow.md 기준)
-    factors := []string{
-        "momentum",   // 25%
-        "technical",  // 15%
-        "value",      // 20%
-        "quality",    // 15%
-        "flow",       // 20% ⭐ 수급
-        "event",      // 5%
+    factors := []FactorInfo{
+        {"momentum", 0.20},   // 20%
+        {"technical", 0.20},  // 20%
+        {"value", 0.15},      // 15%
+        {"quality", 0.15},    // 15%
+        {"flow", 0.25},       // 25% ⭐ 수급 (한국 시장 중요)
+        {"event", 0.05},      // 5%
     }
 
     for _, factor := range factors {
-        contrib := a.calculateFactorContribution(ctx, period, factor)
+        contrib := a.calculateFactorContribution(ctx, period, factor.Name)
         attrs = append(attrs, Attribution{
-            Factor:       factor,
+            Factor:       factor.Name,
             Contribution: contrib,
-            Exposure:     a.getAverageExposure(ctx, period, factor),
+            Exposure:     a.getAverageExposure(ctx, period, factor.Name),
         })
     }
 

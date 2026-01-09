@@ -50,6 +50,16 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'API Reference',
+      collapsed: false,
+      items: [
+        'guide/api/overview',
+        'guide/api/signals-api',
+        'guide/api/selection-api',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Frontend',
       collapsed: true,
       items: [
