@@ -10,6 +10,7 @@ const sidebars: SidebarsConfig = {
         'guide/overview/introduction',
         'guide/overview/tech-stack',
         'guide/overview/getting-started',
+        'guide/overview/development-schedule',
       ],
     },
     {
