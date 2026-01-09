@@ -1,0 +1,52 @@
+-- =====================================================
+-- 011_grant_permissions.sql
+-- aegis_v13 사용자에게 모든 스키마 및 테이블 권한 부여
+-- =====================================================
+
+-- 1. 스키마 사용 권한 (USAGE)
+GRANT USAGE ON SCHEMA data TO aegis_v13;
+GRANT USAGE ON SCHEMA signals TO aegis_v13;
+GRANT USAGE ON SCHEMA selection TO aegis_v13;
+GRANT USAGE ON SCHEMA portfolio TO aegis_v13;
+GRANT USAGE ON SCHEMA execution TO aegis_v13;
+GRANT USAGE ON SCHEMA audit TO aegis_v13;
+
+-- 2. 모든 테이블에 대한 권한 (SELECT, INSERT, UPDATE, DELETE)
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA data TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA signals TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA selection TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA portfolio TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA execution TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA audit TO aegis_v13;
+
+-- 3. 모든 시퀀스에 대한 권한 (USAGE, SELECT, UPDATE)
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA data TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA signals TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA selection TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA portfolio TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA execution TO aegis_v13;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA audit TO aegis_v13;
+
+-- 4. 향후 생성되는 테이블에 대한 기본 권한 설정
+ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT ALL ON TABLES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA signals GRANT ALL ON TABLES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA selection GRANT ALL ON TABLES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA portfolio GRANT ALL ON TABLES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA execution GRANT ALL ON TABLES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA audit GRANT ALL ON TABLES TO aegis_v13;
+
+-- 5. 향후 생성되는 시퀀스에 대한 기본 권한 설정
+ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT ALL ON SEQUENCES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA signals GRANT ALL ON SEQUENCES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA selection GRANT ALL ON SEQUENCES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA portfolio GRANT ALL ON SEQUENCES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA execution GRANT ALL ON SEQUENCES TO aegis_v13;
+ALTER DEFAULT PRIVILEGES IN SCHEMA audit GRANT ALL ON SEQUENCES TO aegis_v13;
+
+-- 6. public 스키마의 foreign table 권한 (v10 마이그레이션용)
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO aegis_v13;
+
+-- =====================================================
+-- 검증: aegis_v13 사용자로 접속하여 테스트
+-- PGPASSWORD=aegis_v13_won psql -U aegis_v13 -d aegis_v13 -c "SELECT COUNT(*) FROM data.stocks;"
+-- =====================================================

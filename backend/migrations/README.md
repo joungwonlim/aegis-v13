@@ -45,6 +45,7 @@ psql -U postgres -d aegis_v13
 | 008_create_portfolio_tables.sql | Phase 4 | portfolio 스키마 테이블 (3개) |
 | 009_create_execution_tables.sql | Phase 4 | execution 스키마 테이블 (3개) |
 | 010_create_audit_tables.sql | Phase 4 | audit 스키마 테이블 (4개) |
+| 011_grant_permissions.sql | Phase 5 | aegis_v13 사용자 권한 부여 |
 
 ---
 
