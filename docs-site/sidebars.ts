@@ -56,6 +56,10 @@ const sidebars: SidebarsConfig = {
         'guide/api/overview',
         'guide/api/signals-api',
         'guide/api/selection-api',
+        'guide/api/portfolio-api',
+        'guide/api/execution-api',
+        'guide/api/audit-api',
+        'guide/api/errors',
       ],
     },
     {
