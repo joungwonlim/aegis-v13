@@ -95,8 +95,14 @@ func NewService(cfg *Config, db *pgxpool.Pool) *Service {
 ```
 backend/
 ├── cmd/
-│   └── api/
-│       └── main.go           # 엔트리포인트
+│   └── quant/                # ⭐ 통합 CLI 진입점
+│       ├── main.go           # 메인 엔트리포인트
+│       └── commands/         # 서브커맨드
+│           ├── root.go       # Root command
+│           ├── api.go        # API 서버 (go run ./cmd/quant api)
+│           ├── fetcher.go    # 데이터 수집 (go run ./cmd/quant fetcher)
+│           ├── test_db.go    # DB 테스트 (go run ./cmd/quant test-db)
+│           └── test_logger.go # Logger 테스트 (go run ./cmd/quant test-logger)
 │
 ├── internal/                  # 비공개 비즈니스 로직
 │   ├── contracts/            # ⭐ 타입/인터페이스 SSOT
@@ -194,6 +200,59 @@ import "internal/brain"         // data에서 금지!
 // ❌ 금지: 순환 참조
 // signals ↔ selection 서로 import 금지
 ```
+
+---
+
+## 통합 CLI 사용법
+
+### 실행 방식 (v10과 동일)
+
+```bash
+# 개발 모드
+go run ./cmd/quant [command] [args...]
+
+# 빌드 후
+make build
+./bin/quant [command] [args...]
+```
+
+### 커맨드 목록
+
+| 커맨드 | 용도 | 예시 |
+|--------|------|------|
+| `api` | API 서버 실행 | `go run ./cmd/quant api --port 8080` |
+| `fetcher` | 데이터 수집 | `go run ./cmd/quant fetcher collect all` |
+| `test-db` | DB 연결 테스트 | `go run ./cmd/quant test-db` |
+| `test-logger` | Logger 테스트 | `go run ./cmd/quant test-logger` |
+
+### 예시
+
+```bash
+# API 서버 실행
+go run ./cmd/quant api
+go run ./cmd/quant api --port 8080 --env production
+
+# 데이터 수집
+go run ./cmd/quant fetcher collect --source kis
+go run ./cmd/quant fetcher collect --source dart
+go run ./cmd/quant fetcher collect all
+
+# 테스트
+go run ./cmd/quant test-db
+go run ./cmd/quant test-logger
+
+# 빌드 후 실행
+make build
+./bin/quant api
+./bin/quant fetcher collect all
+```
+
+### 장점
+
+1. **통일성**: 모든 명령어가 `go run ./cmd/quant ...` 패턴
+2. **확장성**: 새 커맨드 추가 쉬움 (`commands/new.go`)
+3. **플래그 공유**: 공통 플래그 (`--env`, `--config`) 일관성
+4. **빌드 단순화**: `make build` 하나로 전체 빌드
 
 ---
 
