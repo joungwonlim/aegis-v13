@@ -29,57 +29,61 @@ CREATE SCHEMA audit;      -- S7: 성과 분석
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                            data schema                                   │
+│                            data schema (8 tables)                        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  stocks ─────────┬───────────────┬───────────────┬─────────────────────│
 │    │             │               │               │                      │
 │    ▼             ▼               ▼               ▼                      │
-│  prices      market_cap    fundamentals    investor_flow               │
+│ daily_prices  market_cap   fundamentals   investor_flow (PARTITIONED)  │
 │    │             │               │               │                      │
 │    └─────────────┴───────────────┴───────────────┘                      │
 │                              │                                          │
-│                              ▼                                          │
-│              quality_snapshots ──────▶ universe_snapshots              │
+│              disclosures     ▼                                          │
+│                   quality_snapshots ──────▶ universe_snapshots         │
 └─────────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          signals schema                                  │
+│                          signals schema (4 tables)                       │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  technical_scores ◀────┬────▶ flow_scores                              │
-│         │              │           │                                    │
-│         ▼              ▼           ▼                                    │
-│       factor_scores ◀──────── events                                   │
-│              │                                                          │
-│              └────────────────▶ signal_snapshots                       │
+│  technical_details ◀────┬────▶ flow_details                            │
+│         │               │           │                                   │
+│         ▼               ▼           ▼                                   │
+│       factor_scores ◀──────── event_signals                            │
 └─────────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         selection schema                                 │
+│                         selection schema (2 tables)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  screened ────────────────────▶ ranked                                  │
+│  screening_results ──────────▶ ranking_results                          │
 └─────────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         portfolio schema                                 │
+│                         portfolio schema (3 tables)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  targets ◀─────────────────── holdings                                  │
+│  target_portfolios ◀──── portfolio_snapshots                            │
+│         │                                                               │
+│         └────────────────▶ rebalancing_history                          │
 └─────────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         execution schema                                 │
+│                         execution schema (3 tables)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  orders ──────────────────────▶ executions                              │
+│  orders ──────────────────────▶ trades                                  │
+│    │                                                                    │
+│    └──────────────────────────▶ order_errors                            │
 └─────────────────────────────────────────────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           audit schema                                   │
+│                           audit schema (4 tables)                        │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  daily_snapshots         performance_reports         attributions       │
+│  daily_pnl     performance_reports     attribution_analysis             │
+│                         │                                               │
+│                         └──────────▶ benchmark_data                     │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,196 +95,143 @@ CREATE SCHEMA audit;      -- S7: 성과 분석
 
 ```sql
 CREATE TABLE data.stocks (
-    code            VARCHAR(10) PRIMARY KEY,
-    name            VARCHAR(100) NOT NULL,
-    name_en         VARCHAR(100),
-    market          VARCHAR(10),          -- KOSPI, KOSDAQ
-    sector          VARCHAR(50),
-    industry        VARCHAR(100),
-    listing_date    DATE,
-    fiscal_month    INT DEFAULT 12,       -- 결산월
-    is_halted       BOOLEAN DEFAULT FALSE,
-    is_admin        BOOLEAN DEFAULT FALSE,
-    is_spac         BOOLEAN DEFAULT FALSE,
-    updated_at      TIMESTAMPTZ DEFAULT NOW()
+    code           VARCHAR(20) PRIMARY KEY,
+    name           VARCHAR(200) NOT NULL,
+    market         VARCHAR(20) NOT NULL,    -- KOSPI, KOSDAQ, KONEX
+    sector         VARCHAR(100),
+    listing_date   DATE NOT NULL,
+    delisting_date DATE,
+    status         VARCHAR(20) DEFAULT 'active',  -- active, delisted, suspended
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_stocks_market ON data.stocks(market);
 CREATE INDEX idx_stocks_sector ON data.stocks(sector);
+CREATE INDEX idx_stocks_status ON data.stocks(status);
 ```
 
-### prices (일별 가격)
+### daily_prices (일봉 데이터) - PARTITIONED
 
 ```sql
-CREATE TABLE data.prices (
-    stock_code      VARCHAR(10) NOT NULL REFERENCES data.stocks(code),
-    date            DATE NOT NULL,
-    open            BIGINT,
-    high            BIGINT,
-    low             BIGINT,
-    close           BIGINT NOT NULL,
-    volume          BIGINT,               -- 거래량
-    value           BIGINT,               -- 거래대금
-    adj_close       DECIMAL(15,2),        -- 수정종가
-    adj_factor      DECIMAL(10,6) DEFAULT 1.0,
-    change_rate     DECIMAL(8,4),         -- 등락률
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (stock_code, date)
-);
+CREATE TABLE data.daily_prices (
+    stock_code    VARCHAR(20) NOT NULL,
+    trade_date    DATE NOT NULL,
+    open_price    NUMERIC(12,2) NOT NULL,
+    high_price    NUMERIC(12,2) NOT NULL,
+    low_price     NUMERIC(12,2) NOT NULL,
+    close_price   NUMERIC(12,2) NOT NULL,
+    volume        BIGINT NOT NULL,
+    trading_value NUMERIC(15,0),
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, trade_date)
+) PARTITION BY RANGE (trade_date);
 
-CREATE INDEX idx_prices_date ON data.prices(date);
-CREATE INDEX idx_prices_code_date ON data.prices(stock_code, date DESC);
+-- 파티션: 반기별 (2022-2027)
+CREATE TABLE data.daily_prices_2022_h1 PARTITION OF data.daily_prices
+    FOR VALUES FROM ('2022-01-01') TO ('2022-07-01');
+-- ... (2022_h2, 2023_h1, 2023_h2, ..., 2027_h1)
+
+CREATE INDEX idx_daily_prices_date ON data.daily_prices(trade_date);
+CREATE INDEX idx_daily_prices_stock ON data.daily_prices(stock_code);
 ```
 
-### market_cap (시가총액)
-
-```sql
-CREATE TABLE data.market_cap (
-    stock_code          VARCHAR(10) NOT NULL REFERENCES data.stocks(code),
-    date                DATE NOT NULL,
-    market_cap          BIGINT NOT NULL,          -- 시가총액 (원)
-    shares_outstanding  BIGINT,                   -- 상장주식수
-    shares_float        BIGINT,                   -- 유동주식수
-    float_ratio         DECIMAL(5,2),             -- 유동비율
-    created_at          TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (stock_code, date)
-);
-
-CREATE INDEX idx_market_cap_date ON data.market_cap(date);
-```
-
-### investor_flow (투자자별 매매동향) ⭐ 수급 데이터
+### investor_flow (투자자별 수급) ⭐ - PARTITIONED
 
 ```sql
 CREATE TABLE data.investor_flow (
-    stock_code      VARCHAR(10) NOT NULL REFERENCES data.stocks(code),
-    date            DATE NOT NULL,
+    stock_code        VARCHAR(20) NOT NULL,
+    trade_date        DATE NOT NULL,
+    foreign_net_qty   BIGINT DEFAULT 0,     -- 외국인 순매수 수량
+    foreign_net_value BIGINT DEFAULT 0,     -- 외국인 순매수 금액
+    inst_net_qty      BIGINT DEFAULT 0,     -- 기관 순매수 수량
+    inst_net_value    BIGINT DEFAULT 0,     -- 기관 순매수 금액
+    indiv_net_qty     BIGINT DEFAULT 0,     -- 개인 순매수 수량
+    indiv_net_value   BIGINT DEFAULT 0,     -- 개인 순매수 금액
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, trade_date)
+) PARTITION BY RANGE (trade_date);
 
-    -- 순매수 금액 (백만원)
-    foreign_net     BIGINT,               -- 외국인 순매수
-    inst_net        BIGINT,               -- 기관계 순매수
-    individual_net  BIGINT,               -- 개인 순매수
+-- 파티션: 반기별 (daily_prices와 동일)
 
-    -- 기관 상세
-    financial_net   BIGINT,               -- 금융투자
-    insurance_net   BIGINT,               -- 보험
-    trust_net       BIGINT,               -- 투신
-    pension_net     BIGINT,               -- 연기금
-    bank_net        BIGINT,               -- 은행
-    other_inst_net  BIGINT,               -- 기타법인
-
-    -- 순매수 수량 (주)
-    foreign_qty     BIGINT,
-    inst_qty        BIGINT,
-    individual_qty  BIGINT,
-
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (stock_code, date)
-);
-
-CREATE INDEX idx_investor_flow_date ON data.investor_flow(date);
-CREATE INDEX idx_investor_flow_foreign ON data.investor_flow(date, foreign_net DESC);
+CREATE INDEX idx_investor_flow_date ON data.investor_flow(trade_date);
+CREATE INDEX idx_investor_flow_stock ON data.investor_flow(stock_code);
 ```
 
 ### fundamentals (재무 데이터)
 
 ```sql
 CREATE TABLE data.fundamentals (
-    stock_code      VARCHAR(10) NOT NULL REFERENCES data.stocks(code),
-    date            DATE NOT NULL,        -- 기준일
-    fiscal_year     INT,
-    fiscal_quarter  INT,                  -- 1, 2, 3, 4
-
-    -- 밸류에이션 지표
-    per             DECIMAL(10,2),
-    pbr             DECIMAL(10,2),
-    psr             DECIMAL(10,2),
-    pcr             DECIMAL(10,2),
-    ev_ebitda       DECIMAL(10,2),
-    div_yield       DECIMAL(8,4),         -- 배당수익률
-
-    -- 주당 지표
-    eps             DECIMAL(15,2),        -- 주당순이익
-    bps             DECIMAL(15,2),        -- 주당순자산
-    dps             DECIMAL(15,2),        -- 주당배당금
-
-    -- 수익성
-    roe             DECIMAL(8,4),
-    roa             DECIMAL(8,4),
-    npm             DECIMAL(8,4),         -- 순이익률
-    opm             DECIMAL(8,4),         -- 영업이익률
-
-    -- 재무 안정성
-    debt_ratio      DECIMAL(10,2),
-    current_ratio   DECIMAL(10,2),
-
-    -- 성장성
-    revenue_growth  DECIMAL(8,4),         -- 매출성장률 YoY
-    profit_growth   DECIMAL(8,4),         -- 이익성장률 YoY
-
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (stock_code, date)
+    stock_code       VARCHAR(20) NOT NULL,
+    report_date      DATE NOT NULL,
+    per              NUMERIC(10,2),
+    pbr              NUMERIC(10,2),
+    roe              NUMERIC(10,2),
+    debt_ratio       NUMERIC(10,2),
+    revenue          BIGINT,
+    operating_profit BIGINT,
+    net_profit       BIGINT,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, report_date)
 );
 
-CREATE INDEX idx_fundamentals_code_date ON data.fundamentals(stock_code, date DESC);
+CREATE INDEX idx_fundamentals_date ON data.fundamentals(report_date);
+```
+
+### market_cap (시가총액)
+
+```sql
+CREATE TABLE data.market_cap (
+    stock_code         VARCHAR(20) NOT NULL,
+    trade_date         DATE NOT NULL,
+    market_cap         BIGINT NOT NULL,
+    shares_outstanding BIGINT,
+    created_at         TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, trade_date)
+);
+
+CREATE INDEX idx_market_cap_date ON data.market_cap(trade_date);
 ```
 
 ### disclosures (공시)
 
 ```sql
 CREATE TABLE data.disclosures (
-    id              SERIAL PRIMARY KEY,
-    stock_code      VARCHAR(10) NOT NULL REFERENCES data.stocks(code),
-    disclosure_id   VARCHAR(50) UNIQUE,   -- DART 고유번호
-    date            DATE NOT NULL,
-    title           TEXT NOT NULL,
-    type            VARCHAR(50),          -- earnings, material, stake, treasury
-    importance      INT DEFAULT 2,        -- 1=높음, 2=중간, 3=낮음
-    url             TEXT,
-    parsed_data     JSONB,                -- 파싱된 주요 내용
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+    id           SERIAL PRIMARY KEY,
+    stock_code   VARCHAR(20) NOT NULL,
+    disclosed_at TIMESTAMPTZ NOT NULL,
+    title        TEXT NOT NULL,
+    category     VARCHAR(100),
+    content      TEXT,
+    url          TEXT,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_disclosures_code_date ON data.disclosures(stock_code, date DESC);
-CREATE INDEX idx_disclosures_type ON data.disclosures(type);
+CREATE INDEX idx_disclosures_stock ON data.disclosures(stock_code);
+CREATE INDEX idx_disclosures_date ON data.disclosures(disclosed_at);
 ```
 
-### quality_snapshots (품질 스냅샷)
+### quality_snapshots (S0: 데이터 품질)
 
 ```sql
 CREATE TABLE data.quality_snapshots (
-    id              SERIAL PRIMARY KEY,
-    date            DATE NOT NULL UNIQUE,
-    total_stocks    INT,
-    valid_stocks    INT,
-    coverage        JSONB,                -- 데이터별 커버리지
-    quality_score   DECIMAL(5,4),
-    passed_gate     BOOLEAN,
-    issues          JSONB,                -- 품질 이슈 목록
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+    snapshot_date DATE PRIMARY KEY,
+    total_stocks  INT NOT NULL,
+    valid_stocks  INT NOT NULL,
+    coverage      JSONB,                  -- {price: 0.95, flow: 0.90, ...}
+    quality_score NUMERIC(5,4) NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
 );
-
--- coverage JSONB 예시:
--- {
---   "price": 1.0,
---   "volume": 1.0,
---   "market_cap": 0.97,
---   "financials": 0.85,
---   "investor": 0.82,
---   "disclosure": 0.75
--- }
 ```
 
-### universe_snapshots (유니버스 스냅샷)
+### universe_snapshots (S1: 유니버스)
 
 ```sql
 CREATE TABLE data.universe_snapshots (
-    id              SERIAL PRIMARY KEY,
-    date            DATE NOT NULL UNIQUE,
-    stocks          TEXT[],               -- 투자 가능 종목 코드
-    excluded        JSONB,                -- 제외 종목: 사유
-    total_count     INT,
-    config          JSONB,                -- 유니버스 설정
+    snapshot_date   DATE PRIMARY KEY,
+    eligible_stocks JSONB NOT NULL,       -- [code1, code2, ...]
+    total_count     INT NOT NULL,
+    criteria        JSONB,                -- {min_market_cap: 100억, ...}
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 ```
@@ -289,151 +240,189 @@ CREATE TABLE data.universe_snapshots (
 
 ## signals 스키마
 
-### factor_scores (통합 팩터 점수)
+### factor_scores (팩터 점수)
 
 ```sql
 CREATE TABLE signals.factor_scores (
-    stock_code      VARCHAR(10) NOT NULL,
-    date            DATE NOT NULL,
-
-    -- 팩터별 점수 (-1.0 ~ 1.0 정규화)
-    momentum        DECIMAL(8,4),         -- 모멘텀
-    technical       DECIMAL(8,4),         -- 기술적 지표
-    value           DECIMAL(8,4),         -- 가치
-    quality         DECIMAL(8,4),         -- 퀄리티
-    growth          DECIMAL(8,4),         -- 성장
-    flow            DECIMAL(8,4),         -- 수급 ⭐
-    event           DECIMAL(8,4),         -- 이벤트
-
-    -- 통합 점수
-    total_score     DECIMAL(8,4),
-
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (date, stock_code)
+    stock_code   VARCHAR(20) NOT NULL,
+    calc_date    DATE NOT NULL,
+    momentum     NUMERIC(5,4) DEFAULT 0.0,  -- 모멘텀 점수 (0~1)
+    technical    NUMERIC(5,4) DEFAULT 0.0,  -- 기술적 점수 (0~1)
+    value        NUMERIC(5,4) DEFAULT 0.0,  -- 가치 점수 (0~1)
+    quality      NUMERIC(5,4) DEFAULT 0.0,  -- 퀄리티 점수 (0~1)
+    flow         NUMERIC(5,4) DEFAULT 0.0,  -- 수급 점수 (0~1) ⭐
+    event        NUMERIC(5,4) DEFAULT 0.0,  -- 이벤트 점수 (0~1)
+    total_score  NUMERIC(5,4),              -- 종합 점수 (가중평균)
+    updated_at   TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, calc_date)
 );
 
--- PK가 (date, stock_code)이므로 date 단독 인덱스는 불필요
-CREATE INDEX idx_factor_scores_total ON signals.factor_scores(date, total_score DESC);
+CREATE INDEX idx_factor_scores_date ON signals.factor_scores(calc_date);
+CREATE INDEX idx_factor_scores_total ON signals.factor_scores(total_score DESC);
 ```
 
 ### flow_details (수급 상세) ⭐
 
 ```sql
 CREATE TABLE signals.flow_details (
-    stock_code      VARCHAR(10) NOT NULL,
-    date            DATE NOT NULL,
-
-    -- 외국인 누적 순매수
-    foreign_net_5d   BIGINT,              -- 5일 누적
-    foreign_net_10d  BIGINT,              -- 10일 누적
-    foreign_net_20d  BIGINT,              -- 20일 누적
-
-    -- 기관 누적 순매수
-    inst_net_5d      BIGINT,
-    inst_net_10d     BIGINT,
-    inst_net_20d     BIGINT,
-
-    -- 연속 순매수일
-    foreign_streak   INT,                 -- 외국인 연속 순매수 일수 (+/-로 방향)
-    inst_streak      INT,                 -- 기관 연속 순매수 일수
-
-    -- 시그널
-    foreign_signal   DECIMAL(8,4),        -- -1.0 ~ 1.0
-    inst_signal      DECIMAL(8,4),
-    combined_signal  DECIMAL(8,4),        -- 통합 수급 시그널
-
-    created_at       TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (date, stock_code)
+    stock_code        VARCHAR(20) NOT NULL,
+    calc_date         DATE NOT NULL,
+    -- 5일 누적
+    foreign_net_5d    BIGINT DEFAULT 0,
+    inst_net_5d       BIGINT DEFAULT 0,
+    indiv_net_5d      BIGINT DEFAULT 0,
+    -- 10일 누적
+    foreign_net_10d   BIGINT DEFAULT 0,
+    inst_net_10d      BIGINT DEFAULT 0,
+    indiv_net_10d     BIGINT DEFAULT 0,
+    -- 20일 누적
+    foreign_net_20d   BIGINT DEFAULT 0,
+    inst_net_20d      BIGINT DEFAULT 0,
+    indiv_net_20d     BIGINT DEFAULT 0,
+    updated_at        TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, calc_date)
 );
 
--- PK가 (date, stock_code)이므로 date 단독 인덱스는 불필요
+CREATE INDEX idx_flow_details_date ON signals.flow_details(calc_date);
 ```
 
-### technical_details (기술적 지표 상세)
+### technical_details (기술적 지표)
 
 ```sql
 CREATE TABLE signals.technical_details (
-    stock_code      VARCHAR(10) NOT NULL,
-    date            DATE NOT NULL,
-
+    stock_code   VARCHAR(20) NOT NULL,
+    calc_date    DATE NOT NULL,
     -- 이동평균
-    ma5             DECIMAL(15,2),
-    ma20            DECIMAL(15,2),
-    ma60            DECIMAL(15,2),
-    ma120           DECIMAL(15,2),
-
-    -- 모멘텀
-    rsi_14          DECIMAL(8,4),
-    macd            DECIMAL(15,4),
-    macd_signal     DECIMAL(15,4),
-    macd_hist       DECIMAL(15,4),
-
-    -- 볼린저밴드
-    bb_upper        DECIMAL(15,2),
-    bb_middle       DECIMAL(15,2),
-    bb_lower        DECIMAL(15,2),
-
-    -- 추세
-    trend_5d        INT,                  -- 1=상승, 0=횡보, -1=하락
-    trend_20d       INT,
-
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (date, stock_code)
+    ma5          NUMERIC(12,2),
+    ma10         NUMERIC(12,2),
+    ma20         NUMERIC(12,2),
+    ma60         NUMERIC(12,2),
+    ma120        NUMERIC(12,2),
+    -- RSI
+    rsi14        NUMERIC(5,2),
+    -- MACD
+    macd         NUMERIC(12,4),
+    macd_signal  NUMERIC(12,4),
+    macd_hist    NUMERIC(12,4),
+    -- 볼린저 밴드
+    bb_upper     NUMERIC(12,2),
+    bb_middle    NUMERIC(12,2),
+    bb_lower     NUMERIC(12,2),
+    updated_at   TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, calc_date)
 );
+
+CREATE INDEX idx_technical_details_date ON signals.technical_details(calc_date);
 ```
 
-### events (이벤트 로그)
+### event_signals (이벤트 시그널)
 
 ```sql
-CREATE TABLE signals.events (
-    id              SERIAL PRIMARY KEY,
-    stock_code      VARCHAR(10) NOT NULL,
-    event_date      DATE NOT NULL,
-    event_type      VARCHAR(50) NOT NULL, -- earnings, disclosure, stake, etc
-    title           TEXT,
-    score           DECIMAL(5,2),         -- 이벤트 점수
-    source          VARCHAR(30),          -- DART, NEWS
-    raw_data        JSONB,
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE signals.event_signals (
+    id            SERIAL PRIMARY KEY,
+    stock_code    VARCHAR(20) NOT NULL,
+    event_date    DATE NOT NULL,
+    event_type    VARCHAR(50) NOT NULL,    -- disclosure, news, earning
+    event_subtype VARCHAR(50),
+    title         TEXT,
+    description   TEXT,
+    impact_score  NUMERIC(5,4) DEFAULT 0.0,  -- 영향도 점수 (0~1)
+    created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_events_code_date ON signals.events(stock_code, event_date DESC);
-CREATE INDEX idx_events_type ON signals.events(event_type);
+CREATE INDEX idx_event_signals_stock ON signals.event_signals(stock_code);
+CREATE INDEX idx_event_signals_date ON signals.event_signals(event_date);
+CREATE INDEX idx_event_signals_type ON signals.event_signals(event_type);
 ```
 
 ---
 
 ## selection 스키마
 
-### ranked (랭킹 결과)
+### screening_results (S3: 스크리닝)
 
 ```sql
-CREATE TABLE selection.ranked (
-    date            DATE NOT NULL,
-    stock_code      VARCHAR(10) NOT NULL,
-    rank            INT NOT NULL,
-    total_score     DECIMAL(8,4),
+CREATE TABLE selection.screening_results (
+    screen_date   DATE PRIMARY KEY,
+    passed_stocks JSONB NOT NULL,           -- [code1, code2, ...]
+    total_count   INT NOT NULL,
+    criteria      JSONB,                     -- {min_score: 0.5, ...}
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+```
 
-    -- 팩터별 기여도
-    scores          JSONB,
-    -- {
-    --   "momentum": 0.15,
-    --   "technical": 0.08,
-    --   "value": 0.12,
-    --   "quality": 0.10,
-    --   "flow": 0.18,
-    --   "event": 0.02
-    -- }
+### ranking_results (S4: 랭킹)
 
-    -- 스크리닝 통과 여부
-    screened        BOOLEAN DEFAULT TRUE,
-    screen_reason   TEXT,                 -- 제외 사유 (if screened=false)
-
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (date, stock_code)
+```sql
+CREATE TABLE selection.ranking_results (
+    stock_code   VARCHAR(20) NOT NULL,
+    rank_date    DATE NOT NULL,
+    rank         INT NOT NULL,               -- 1-based ranking
+    total_score  NUMERIC(5,4) NOT NULL,
+    momentum     NUMERIC(5,4),
+    technical    NUMERIC(5,4),
+    value        NUMERIC(5,4),
+    quality      NUMERIC(5,4),
+    flow         NUMERIC(5,4),
+    event        NUMERIC(5,4),
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (stock_code, rank_date)
 );
 
-CREATE INDEX idx_ranked_date_rank ON selection.ranked(date, rank);
+CREATE INDEX idx_ranking_results_date ON selection.ranking_results(rank_date);
+CREATE INDEX idx_ranking_results_rank ON selection.ranking_results(rank, rank_date);
+CREATE INDEX idx_ranking_results_score ON selection.ranking_results(total_score DESC);
+```
+
+---
+
+## portfolio 스키마
+
+### target_portfolios (S5: 목표 포트폴리오)
+
+```sql
+CREATE TABLE portfolio.target_portfolios (
+    portfolio_date DATE PRIMARY KEY,
+    positions      JSONB NOT NULL,          -- [{code, name, weight, target_qty, action, reason}, ...]
+    cash_weight    NUMERIC(5,4) DEFAULT 0.0,
+    total_weight   NUMERIC(5,4),
+    position_count INT,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### portfolio_snapshots (실제 포트폴리오)
+
+```sql
+CREATE TABLE portfolio.portfolio_snapshots (
+    snapshot_date    DATE PRIMARY KEY,
+    total_deposit    BIGINT NOT NULL,
+    total_evaluation BIGINT NOT NULL,
+    cash_balance     BIGINT NOT NULL,
+    profit_loss      BIGINT,
+    profit_loss_rate NUMERIC(10,6),
+    positions        JSONB NOT NULL,        -- [{code, qty, avg_price, current_price, value}, ...]
+    position_count   INT,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### rebalancing_history (리밸런싱 기록)
+
+```sql
+CREATE TABLE portfolio.rebalancing_history (
+    id              SERIAL PRIMARY KEY,
+    rebalance_date  DATE NOT NULL,
+    from_positions  JSONB,                  -- 변경 전 포지션
+    to_positions    JSONB,                  -- 변경 후 목표 포지션
+    required_orders JSONB,                  -- 필요한 주문들
+    status          VARCHAR(20) DEFAULT 'pending',  -- pending, in_progress, completed, failed
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    completed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX idx_rebalancing_history_date ON portfolio.rebalancing_history(rebalance_date);
+CREATE INDEX idx_rebalancing_history_status ON portfolio.rebalancing_history(status);
 ```
 
 ---
@@ -445,83 +434,151 @@ CREATE INDEX idx_ranked_date_rank ON selection.ranked(date, rank);
 ```sql
 CREATE TABLE execution.orders (
     id              SERIAL PRIMARY KEY,
-    order_id        VARCHAR(50) UNIQUE,   -- 증권사 주문번호
-
-    stock_code      VARCHAR(10) NOT NULL,
-    -- stock_name 제거: data.stocks와 JOIN으로 조회 (정규화)
-    side            VARCHAR(4) NOT NULL,  -- BUY, SELL
-
-    quantity        INT NOT NULL,
-    price           INT,                  -- 주문가 (0=시장가)
-    order_type      VARCHAR(10),          -- LIMIT, MARKET
-
-    -- 상태
-    status          VARCHAR(20) DEFAULT 'PENDING',
+    stock_code      VARCHAR(20) NOT NULL,
+    stock_name      VARCHAR(200),
+    order_date      DATE NOT NULL,
+    order_time      TIMESTAMPTZ DEFAULT NOW(),
+    order_action    VARCHAR(10) NOT NULL,     -- BUY, SELL
+    order_type      VARCHAR(20) NOT NULL,     -- MARKET, LIMIT, STOP
+    order_price     NUMERIC(12,2),
+    order_qty       INT NOT NULL,
     filled_qty      INT DEFAULT 0,
-    filled_price    INT,
-
-    -- 의사결정 근거
-    scores          JSONB,                -- Brain 점수
+    filled_price    NUMERIC(12,2),
+    status          VARCHAR(20) DEFAULT 'pending',  -- pending, submitted, filled, partial, cancelled, rejected
+    broker_order_no VARCHAR(50),
     reason          TEXT,
-
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX idx_orders_stock ON execution.orders(stock_code);
+CREATE INDEX idx_orders_date ON execution.orders(order_date);
 CREATE INDEX idx_orders_status ON execution.orders(status);
-CREATE INDEX idx_orders_created ON execution.orders(created_at);
+CREATE INDEX idx_orders_broker ON execution.orders(broker_order_no);
+```
+
+### trades (체결)
+
+```sql
+CREATE TABLE execution.trades (
+    id              SERIAL PRIMARY KEY,
+    order_id        INT NOT NULL REFERENCES execution.orders(id),
+    stock_code      VARCHAR(20) NOT NULL,
+    trade_date      DATE NOT NULL,
+    trade_time      TIMESTAMPTZ NOT NULL,
+    trade_action    VARCHAR(10) NOT NULL,     -- BUY, SELL
+    trade_price     NUMERIC(12,2) NOT NULL,
+    trade_qty       INT NOT NULL,
+    trade_amount    BIGINT NOT NULL,
+    commission      BIGINT DEFAULT 0,
+    tax             BIGINT DEFAULT 0,
+    broker_trade_no VARCHAR(50),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_trades_order ON execution.trades(order_id);
+CREATE INDEX idx_trades_stock ON execution.trades(stock_code);
+CREATE INDEX idx_trades_date ON execution.trades(trade_date);
+```
+
+### order_errors (주문 오류)
+
+```sql
+CREATE TABLE execution.order_errors (
+    id              SERIAL PRIMARY KEY,
+    order_id        INT REFERENCES execution.orders(id),
+    stock_code      VARCHAR(20),
+    error_time      TIMESTAMPTZ DEFAULT NOW(),
+    error_code      VARCHAR(50),
+    error_message   TEXT NOT NULL,
+    broker_response JSONB,
+    retry_count     INT DEFAULT 0,
+    resolved        BOOLEAN DEFAULT FALSE,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_order_errors_order ON execution.order_errors(order_id);
+CREATE INDEX idx_order_errors_resolved ON execution.order_errors(resolved);
 ```
 
 ---
 
 ## audit 스키마
 
-### daily_snapshots (일별 스냅샷)
+### performance_reports (S7: 성과 보고서)
 
 ```sql
-CREATE TABLE audit.daily_snapshots (
-    id              SERIAL PRIMARY KEY,
-    date            DATE NOT NULL UNIQUE,
-
-    -- 자산
-    total_value     DECIMAL(15,2),
-    cash            DECIMAL(15,2),
-    stock_value     DECIMAL(15,2),
-
-    -- 수익률
-    daily_return    DECIMAL(8,6),
-    cum_return      DECIMAL(8,6),
-    benchmark_return DECIMAL(8,6),        -- KOSPI 대비
-
-    -- 포지션
-    positions       JSONB,
-
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE audit.performance_reports (
+    report_date       DATE PRIMARY KEY,
+    period_start      DATE NOT NULL,
+    period_end        DATE NOT NULL,
+    total_return      NUMERIC(10,6),
+    benchmark_return  NUMERIC(10,6),
+    alpha             NUMERIC(10,6),
+    beta              NUMERIC(10,6),
+    sharpe_ratio      NUMERIC(10,6),
+    volatility        NUMERIC(10,6),
+    max_drawdown      NUMERIC(10,6),
+    win_rate          NUMERIC(5,4),
+    avg_win           NUMERIC(10,6),
+    avg_loss          NUMERIC(10,6),
+    profit_factor     NUMERIC(10,6),
+    total_trades      INT,
+    created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
-### signal_attribution (시그널 기여도 분석)
+### attribution_analysis (귀속 분석)
 
 ```sql
-CREATE TABLE audit.signal_attribution (
-    id              SERIAL PRIMARY KEY,
-    date            DATE NOT NULL,
-    period          VARCHAR(20),          -- daily, weekly, monthly
+CREATE TABLE audit.attribution_analysis (
+    analysis_date     DATE PRIMARY KEY,
+    period_start      DATE NOT NULL,
+    period_end        DATE NOT NULL,
+    total_return      NUMERIC(10,6),
+    -- 팩터별 기여도
+    momentum_contrib  NUMERIC(10,6),
+    technical_contrib NUMERIC(10,6),
+    value_contrib     NUMERIC(10,6),
+    quality_contrib   NUMERIC(10,6),
+    flow_contrib      NUMERIC(10,6),        -- 수급 기여도 ⭐
+    event_contrib     NUMERIC(10,6),
+    -- 섹터별/종목별 기여도
+    sector_contrib    JSONB,                  -- {sector1: 0.02, ...}
+    stock_contrib     JSONB,                  -- {code1: 0.05, ...}
+    created_at        TIMESTAMPTZ DEFAULT NOW()
+);
+```
 
-    -- 시그널별 수익 기여도
-    momentum_contrib   DECIMAL(8,6),
-    technical_contrib  DECIMAL(8,6),
-    value_contrib      DECIMAL(8,6),
-    quality_contrib    DECIMAL(8,6),
-    flow_contrib       DECIMAL(8,6),      -- 수급 기여도 ⭐
-    event_contrib      DECIMAL(8,6),
+### benchmark_data (벤치마크)
 
-    -- 메타
-    details         JSONB,
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+```sql
+CREATE TABLE audit.benchmark_data (
+    benchmark_date DATE NOT NULL,
+    benchmark_code VARCHAR(20) NOT NULL,     -- KOSPI, KOSDAQ
+    close_price    NUMERIC(12,2) NOT NULL,
+    daily_return   NUMERIC(10,6),
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (benchmark_date, benchmark_code)
 );
 
-CREATE INDEX idx_attribution_date ON audit.signal_attribution(date);
+CREATE INDEX idx_benchmark_data_date ON audit.benchmark_data(benchmark_date);
+```
+
+### daily_pnl (일별 손익)
+
+```sql
+CREATE TABLE audit.daily_pnl (
+    pnl_date          DATE PRIMARY KEY,
+    realized_pnl      BIGINT DEFAULT 0,       -- 실현 손익
+    unrealized_pnl    BIGINT DEFAULT 0,       -- 미실현 손익
+    total_pnl         BIGINT,
+    daily_return      NUMERIC(10,6),
+    cumulative_return NUMERIC(10,6),
+    portfolio_value   BIGINT,
+    cash_balance      BIGINT,
+    created_at        TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
 ---
@@ -530,8 +587,8 @@ CREATE INDEX idx_attribution_date ON audit.signal_attribution(date);
 
 | 데이터 | 테이블 | 커버리지 |
 |--------|--------|----------|
-| 가격 (OHLCV) | `data.prices` | 100% |
-| 거래량 | `data.prices.volume` | 100% |
+| 가격 (OHLCV) | `data.daily_prices` | 100% |
+| 거래량 | `data.daily_prices.volume` | 100% |
 | 시가총액 | `data.market_cap` | 95%+ |
 | 재무제표 | `data.fundamentals` | 80%+ |
 | **투자자 수급** | `data.investor_flow` | **80%+** |
@@ -587,7 +644,7 @@ CREATE SCHEMA audit;
 
 **v10 → v13 매핑**:
 - `market.stocks` → `data.stocks`
-- `market.daily_prices` → `data.prices`
+- `market.daily_prices` → `data.daily_prices`
 - `market.investor_trading` → `data.investor_flow` ⭐
 - `analysis.fundamentals` → `data.fundamentals`
 
@@ -632,13 +689,13 @@ psql -U aegis_v13 -d aegis_v13 -f backend/migrations/006_*.sql
 -- 레코드 수 확인
 SELECT 'stocks' as table_name, COUNT(*) FROM data.stocks
 UNION ALL
-SELECT 'prices', COUNT(*) FROM data.prices
+SELECT 'daily_prices', COUNT(*) FROM data.daily_prices
 UNION ALL
 SELECT 'investor_flow', COUNT(*) FROM data.investor_flow;
 
 -- 예상 결과:
 -- stocks: 2,835
--- prices: 3,035,230
+-- daily_prices: 3,035,230
 -- investor_flow: 2,438,932
 ```
 
