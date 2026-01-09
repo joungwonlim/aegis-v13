@@ -851,6 +851,56 @@ CREATE TABLE backtest.simulation_results (
 
 **필요 조건**: Phase 1 데이터 레이어 안정화 후 검토
 
+### 6. 시장 지수 데이터
+
+시장 상황 판단 및 리스크 관리용:
+
+```yaml
+데이터:
+  - 국내: KOSPI, KOSDAQ
+  - 해외: NASDAQ, S&P500, VIX (변동성)
+
+활용 방안:
+  - 시장 레짐 판단 (상승장/하락장/횡보장)
+  - 리스크 관리 (하락장 → 현금 비중 증가)
+  - 상대 강도 비교 (종목 수익률 vs 시장 수익률)
+  - 베타 계산
+
+데이터 소스:
+  - 국내: 네이버 금융, KRX
+  - 해외: Yahoo Finance, investing.com
+```
+
+**필요 조건**: 시장 레짐 판단 로직 설계
+
+### 7. 종목 뉴스 및 시장 심리
+
+Event 시그널 강화 및 투자 타이밍 조절:
+
+```yaml
+종목 뉴스:
+  - 네이버 뉴스 (종목별 크롤링)
+  - DART 공시 (이미 있음)
+  - 증권사 리포트 (선택)
+
+활용 방안:
+  - 호재/악재 감지 → Event 시그널 강화
+  - 뉴스 심리 분석 (긍정/부정 키워드)
+  - 실적 발표, M&A, 경영권 변동 탐지
+
+시장 심리 지표:
+  - 공포탐욕지수
+  - 신용잔고
+  - 투자자 예탁금
+
+구현 위치:
+  - external/naver/news.go
+  - signals/event.go (강화)
+  - signals/market_context.go (신규)
+```
+
+**필요 조건**: NLP 감성 분석 또는 키워드 기반 분류 로직
+
 ---
 
 **Prev**: [Frontend Folder Structure](../frontend/folder-structure.md)
