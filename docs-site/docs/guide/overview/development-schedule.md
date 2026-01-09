@@ -1292,3 +1292,4 @@ internal/monitoring/
 **최종 업데이트**: 2025-01-09
 **변경 이력**:
 - v1.1: 실시간 가격 피드 인프라 추가 (Phase 1.5)
+<!-- Trigger deployment -->
