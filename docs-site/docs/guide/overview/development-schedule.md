@@ -1313,3 +1313,4 @@ internal/monitoring/
 **변경 이력**:
 - v1.1: 실시간 가격 피드 인프라 추가 (Phase 1.5)
 <!-- Trigger deployment -->
+<!-- Phase 7 deployment trigger 1768001458 -->
