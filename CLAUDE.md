@@ -15,6 +15,13 @@
 ### 3. SSOT 준수
 정해진 위치에서만 해당 책임 수행.
 
+### 4. 문서-코드 동기화 필수 ⚠️
+**코드 변경 시 관련 문서도 반드시 함께 업데이트.**
+- 폴더 구조 변경 → `development-schedule.md`, `folder-structure.md` 수정
+- DB 스키마 변경 → `schema-design.md` 수정
+- API 변경 → 관련 레이어 문서 수정
+- **문서와 코드가 불일치하면 안 됨**
+
 ---
 
 ## Tech Stack
@@ -32,7 +39,9 @@
 ```
 aegis-v13/
 ├── backend/
-│   ├── cmd/api/main.go
+│   ├── cmd/quant/         # 통합 CLI (Cobra)
+│   │   ├── main.go
+│   │   └── commands/      # 서브커맨드
 │   ├── internal/
 │   │   ├── contracts/     # 타입/인터페이스 SSOT
 │   │   ├── brain/         # 오케스트레이터
@@ -44,7 +53,8 @@ aegis-v13/
 │   │   ├── audit/         # S7: 성과분석
 │   │   ├── external/      # 외부 API (KIS, DART)
 │   │   └── api/           # HTTP 핸들러
-│   └── pkg/               # 공용 패키지
+│   ├── pkg/               # 공용 패키지
+│   └── migrations/        # DB 마이그레이션
 ├── frontend/
 │   └── src/
 │       ├── app/           # Next.js App Router
@@ -110,10 +120,15 @@ S7: Audit         → 성과 분석
 ```bash
 cd backend
 make deps       # 의존성
-make run        # 실행
-make build      # 빌드
+make build      # 빌드 (bin/quant)
 make test       # 테스트
 make lint       # 린트
+
+# 실행 (통합 CLI)
+go run ./cmd/quant [command]
+go run ./cmd/quant fetcher collect all   # 데이터 수집
+go run ./cmd/quant api                   # API 서버 (예정)
+go run ./cmd/quant test-db               # DB 테스트
 ```
 
 ### Frontend
