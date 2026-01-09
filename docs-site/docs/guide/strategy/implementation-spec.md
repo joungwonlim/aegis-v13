@@ -551,6 +551,7 @@ type DecisionSnapshot struct {
 package strategyconfig
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -561,6 +562,7 @@ import (
 )
 
 // Load reads YAML file and returns Config with raw bytes
+// SSOT 핵심: KnownFields(true)로 오타/미사용 필드 즉시 실패
 func Load(path string) (*Config, []byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -568,7 +570,9 @@ func Load(path string) (*Config, []byte, error) {
 	}
 
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true) // 알 수 없는 필드 발견 시 에러 반환
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, nil, err
 	}
 
@@ -683,6 +687,11 @@ func Validate(cfg *Config) error {
 	}
 
 	// === Signals ===
+	// score_range: min < max
+	if cfg.Signals.Normalization.ScoreRangeMin >= cfg.Signals.Normalization.ScoreRangeMax {
+		return ValidationError{"signals.normalization", "score_range_min must be < score_range_max"}
+	}
+
 	// lookbacks_days와 weights 배열 길이 일치 확인
 	if len(cfg.Signals.Momentum.LookbacksDays) != len(cfg.Signals.Momentum.Weights) {
 		return ValidationError{"signals.momentum", "lookbacks_days length must match weights length"}
@@ -714,6 +723,23 @@ func Validate(cfg *Config) error {
 	}
 
 	a := cfg.Portfolio.Allocation
+	// 퍼센트 범위 검증 (0~1)
+	if err := validatePctRange(a.CashTargetPct, "portfolio.allocation.cash_target_pct"); err != nil {
+		return err
+	}
+	if err := validatePctRange(a.PositionMinPct, "portfolio.allocation.position_min_pct"); err != nil {
+		return err
+	}
+	if err := validatePctRange(a.PositionMaxPct, "portfolio.allocation.position_max_pct"); err != nil {
+		return err
+	}
+	if err := validatePctRange(a.SectorMaxPct, "portfolio.allocation.sector_max_pct"); err != nil {
+		return err
+	}
+	if err := validatePctRange(a.TurnoverDailyMaxPct, "portfolio.allocation.turnover_daily_max_pct"); err != nil {
+		return err
+	}
+
 	if a.PositionMinPct > a.PositionMaxPct {
 		return ValidationError{"portfolio.allocation", "position_min_pct must be <= position_max_pct"}
 	}
@@ -727,6 +753,22 @@ func Validate(cfg *Config) error {
 		return ValidationError{"portfolio.weighting.tiers", fmt.Sprintf("count sum must equal holdings.target=%d, got %d", h.Target, w.TotalCount())}
 	}
 
+	// 각 tier가 position_min/max 범위 내인지 검증
+	for i, tier := range w.Tiers {
+		if tier.WeightEachPct < a.PositionMinPct {
+			return ValidationError{
+				Field:   fmt.Sprintf("portfolio.weighting.tiers[%d]", i),
+				Message: fmt.Sprintf("weight_each_pct=%.4f < position_min_pct=%.4f", tier.WeightEachPct, a.PositionMinPct),
+			}
+		}
+		if tier.WeightEachPct > a.PositionMaxPct {
+			return ValidationError{
+				Field:   fmt.Sprintf("portfolio.weighting.tiers[%d]", i),
+				Message: fmt.Sprintf("weight_each_pct=%.4f > position_max_pct=%.4f", tier.WeightEachPct, a.PositionMaxPct),
+			}
+		}
+	}
+
 	// Tier weights + cash ≈ 1.0 (±0.5%)
 	totalAlloc := w.TotalWeightPct() + a.CashTargetPct
 	if math.Abs(totalAlloc-1.0) > 0.005 {
@@ -738,8 +780,21 @@ func Validate(cfg *Config) error {
 		return ValidationError{"execution.slippage_model.segments", "required"}
 	}
 
+	// slippage_pct >= 0 검증
+	for i, seg := range cfg.Execution.SlippageModel.Segments {
+		if seg.SlippagePct < 0 {
+			return ValidationError{
+				Field:   fmt.Sprintf("execution.slippage_model.segments[%d].slippage_pct", i),
+				Message: "must be >= 0",
+			}
+		}
+	}
+
 	// splitting 제약 조건
 	if cfg.Execution.Splitting.Enable {
+		if cfg.Execution.Splitting.MinSlices < 1 {
+			return ValidationError{"execution.splitting.min_slices", "must be >= 1"}
+		}
 		if cfg.Execution.Splitting.MinSlices > cfg.Execution.Splitting.MaxSlices {
 			return ValidationError{"execution.splitting", "min_slices must be <= max_slices"}
 		}
@@ -770,6 +825,14 @@ func Validate(cfg *Config) error {
 				}
 			}
 		}
+	}
+
+	// === BacktestCosts ===
+	if cfg.BacktestCost.CommissionBps < 0 {
+		return ValidationError{"backtest_costs.commission_bps", "must be >= 0"}
+	}
+	if cfg.BacktestCost.TaxBps < 0 {
+		return ValidationError{"backtest_costs.tax_bps", "must be >= 0"}
 	}
 
 	return nil
@@ -829,6 +892,14 @@ func validateWeightsSum(weights []float64, target float64, epsilon float64) erro
 	}
 	if math.Abs(sum-target) > epsilon {
 		return fmt.Errorf("must sum to %.2f, got %.4f", target, sum)
+	}
+	return nil
+}
+
+// validatePctRange는 퍼센트 값이 0~1 범위인지 검증
+func validatePctRange(pct float64, field string) error {
+	if pct < 0 || pct > 1 {
+		return ValidationError{field, "must be in range [0, 1]"}
 	}
 	return nil
 }
@@ -957,6 +1028,9 @@ func TestWarn(t *testing.T) {
 -- audit 스키마: 의사결정 스냅샷 테이블
 -- =====================================================
 
+-- 스키마 생성 (없으면)
+CREATE SCHEMA IF NOT EXISTS audit;
+
 CREATE TABLE audit.decision_snapshots (
     id              SERIAL PRIMARY KEY,
     config_hash     VARCHAR(64) NOT NULL,
@@ -1006,7 +1080,9 @@ COMMENT ON COLUMN audit.decision_snapshots.config_yaml IS '원본 YAML 전문';
 | `meta.*_time` | HH:MM 형식 |
 | `meta.execution_window` | start < end |
 | `universe.filters.adtv20_min_krw` | > 0 |
+| `universe.filters.spread.max_pct` | (0, 0.05] |
 | `universe.filters.spread.formula` | 고정값 일치 |
+| `signals.normalization` | score_range_min < score_range_max |
 | `signals.momentum` | lookbacks_days 길이 = weights 길이 |
 | `signals.momentum.weights` | 합 = 1.0 |
 | `signals.flow` | lookbacks_days 길이 = weights 길이 |
@@ -1014,16 +1090,22 @@ COMMENT ON COLUMN audit.decision_snapshots.config_yaml IS '원본 YAML 전문';
 | `ranking.weights_pct` | 합 = 100 |
 | `ranking.constraints` | momentum+technical ≤ max |
 | `portfolio.holdings` | min ≤ target ≤ max |
+| `portfolio.allocation.*_pct` | 범위 [0, 1] |
 | `portfolio.allocation` | position_min ≤ position_max |
 | `portfolio.allocation` | sector_max ≥ position_max |
 | `portfolio.weighting.tiers` | count 합 = holdings.target |
+| `portfolio.weighting.tiers[]` | position_min ≤ weight ≤ position_max |
 | `portfolio` | tiers + cash = 1.0 (±0.5%) |
 | `execution.slippage_model` | segments 필수 |
+| `execution.slippage_model.segments[].slippage_pct` | ≥ 0 |
+| `execution.splitting.min_slices` | ≥ 1 |
 | `execution.splitting` | min_slices ≤ max_slices |
 | `execution.splitting.interval_seconds` | > 0 |
 | `exit.mode` | FIXED \| ATR |
 | `risk_overlay.nasdaq_adjust.clamp` | min ≤ max |
 | `risk_overlay.nasdaq_adjust.triggers[]` | ret_le 또는 ret_ge 필수 |
+| `backtest_costs.commission_bps` | ≥ 0 |
+| `backtest_costs.tax_bps` | ≥ 0 |
 
 ### 8.3 Warn 규칙 요약
 
