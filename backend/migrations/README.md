@@ -7,8 +7,11 @@ Aegis v13 데이터베이스 마이그레이션 파일
 ## 실행 순서
 
 ```bash
-# PostgreSQL 접속
-psql -U postgres -d aegis_v13
+# PostgreSQL 접속 (aegis_v13 사용자)
+PGPASSWORD=aegis_v13_won psql -U aegis_v13 -d aegis_v13
+
+# 또는 superuser로 초기 설정 시
+# psql -U wonny -d aegis_v13
 
 # Phase 1: 스키마 생성
 \i 001_create_schemas.sql
@@ -27,6 +30,10 @@ psql -U postgres -d aegis_v13
 \i 008_create_portfolio_tables.sql
 \i 009_create_execution_tables.sql
 \i 010_create_audit_tables.sql
+
+# Phase 5: 권한 설정 (superuser 권한 필요)
+\i 011_grant_permissions.sql
+\i 012_change_ownership.sql
 ```
 
 ---
@@ -46,6 +53,7 @@ psql -U postgres -d aegis_v13
 | 009_create_execution_tables.sql | Phase 4 | execution 스키마 테이블 (3개) |
 | 010_create_audit_tables.sql | Phase 4 | audit 스키마 테이블 (4개) |
 | 011_grant_permissions.sql | Phase 5 | aegis_v13 사용자 권한 부여 |
+| 012_change_ownership.sql | Phase 5 | 스키마/테이블 소유자 변경 |
 
 ---
 
