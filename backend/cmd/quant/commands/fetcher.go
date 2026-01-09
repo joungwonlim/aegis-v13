@@ -1,9 +1,21 @@
 package commands
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/wonny/aegis/v13/backend/internal/external/dart"
+	"github.com/wonny/aegis/v13/backend/internal/external/krx"
+	"github.com/wonny/aegis/v13/backend/internal/external/naver"
+	"github.com/wonny/aegis/v13/backend/internal/s0_data"
+	"github.com/wonny/aegis/v13/backend/internal/s0_data/collector"
+	"github.com/wonny/aegis/v13/backend/pkg/config"
+	"github.com/wonny/aegis/v13/backend/pkg/database"
+	"github.com/wonny/aegis/v13/backend/pkg/httputil"
+	"github.com/wonny/aegis/v13/backend/pkg/logger"
 )
 
 // fetcherCmd represents the fetcher command
@@ -77,6 +89,42 @@ func runFetcherCollect(cmd *cobra.Command, args []string) error {
 	}
 }
 
+// initCollector initializes all dependencies and returns a collector
+func initCollector() (*collector.Collector, context.Context, error) {
+	ctx := context.Background()
+
+	// 1. Load config
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, ctx, fmt.Errorf("load config: %w", err)
+	}
+
+	// 2. Initialize logger
+	log := logger.New(cfg)
+
+	// 3. Connect to database
+	db, err := database.New(cfg)
+	if err != nil {
+		return nil, ctx, fmt.Errorf("connect to database: %w", err)
+	}
+
+	// 4. Create HTTP client
+	httpClient := httputil.New(cfg, log)
+
+	// 5. Create external API clients
+	naverClient := naver.NewClient(httpClient, log)
+	dartClient := dart.NewClient(cfg.DART.APIKey, log)
+	krxClient := krx.NewClient(httpClient, log)
+
+	// 6. Create repository
+	repo := s0_data.NewRepository(db.Pool)
+
+	// 7. Create collector
+	col := collector.NewCollector(naverClient, dartClient, krxClient, repo, log)
+
+	return col, ctx, nil
+}
+
 func collectKIS() error {
 	fmt.Println()
 	PrintSeparator()
@@ -90,7 +138,7 @@ func collectKIS() error {
 	}
 	PrintList(items)
 	fmt.Println()
-	PrintWarning("구현 필요: internal/external/kis/")
+	PrintWarning("구현 예정: KIS API 연동")
 	return nil
 }
 
@@ -100,14 +148,23 @@ func collectDART() error {
 	fmt.Println("📄 DART 공시 데이터 수집 시작...")
 	PrintSeparator()
 
-	items := []string{
-		"정기보고서",
-		"주요사항보고",
-		"재무제표",
+	// Initialize collector
+	col, ctx, err := initCollector()
+	if err != nil {
+		return fmt.Errorf("init collector: %w", err)
 	}
-	PrintList(items)
-	fmt.Println()
-	PrintWarning("구현 필요: internal/external/dart/")
+
+	// Fetch disclosures (last 7 days)
+	to := time.Now()
+	from := to.AddDate(0, 0, -7)
+
+	fmt.Printf("\n기간: %s ~ %s\n\n", from.Format("2006-01-02"), to.Format("2006-01-02"))
+
+	if err := col.FetchDisclosures(ctx, from, to); err != nil {
+		return fmt.Errorf("fetch disclosures: %w", err)
+	}
+
+	fmt.Println("\n✅ DART 공시 데이터 수집 완료!")
 	return nil
 }
 
@@ -117,33 +174,95 @@ func collectNaver() error {
 	fmt.Println("🔍 Naver Finance 데이터 수집 시작...")
 	PrintSeparator()
 
-	items := []string{
-		"종목 정보",
-		"투자자별 매매 동향",
-		"신용/대차 잔고",
+	// Initialize collector
+	col, ctx, err := initCollector()
+	if err != nil {
+		return fmt.Errorf("init collector: %w", err)
 	}
-	PrintList(items)
-	fmt.Println()
-	PrintWarning("구현 필요: internal/external/naver/")
+
+	// Date range (last 30 days)
+	to := time.Now()
+	from := to.AddDate(0, 0, -30)
+
+	fmt.Printf("\n기간: %s ~ %s\n", from.Format("2006-01-02"), to.Format("2006-01-02"))
+	fmt.Printf("작업자 수: 5\n\n")
+
+	cfg := collector.Config{Workers: 5}
+
+	// 1. Fetch prices
+	fmt.Println("📊 가격 데이터 수집 중...")
+	if _, err := col.FetchAllPrices(ctx, from, to, cfg); err != nil {
+		return fmt.Errorf("fetch prices: %w", err)
+	}
+
+	// 2. Fetch investor flow
+	fmt.Println("📈 투자자 수급 데이터 수집 중...")
+	if _, err := col.FetchAllInvestorFlow(ctx, from, to, cfg); err != nil {
+		return fmt.Errorf("fetch investor flow: %w", err)
+	}
+
+	// 3. Fetch market caps
+	fmt.Println("💰 시가총액 데이터 수집 중...")
+	if err := col.FetchMarketCaps(ctx); err != nil {
+		return fmt.Errorf("fetch market caps: %w", err)
+	}
+
+	fmt.Println("\n✅ Naver Finance 데이터 수집 완료!")
 	return nil
 }
 
 func collectAll() error {
+	fmt.Println()
+	PrintSeparator()
 	fmt.Println("🚀 전체 소스 데이터 수집 시작...")
+	PrintSeparator()
 
-	if err := collectKIS(); err != nil {
-		return err
+	// Initialize collector
+	col, ctx, err := initCollector()
+	if err != nil {
+		return fmt.Errorf("init collector: %w", err)
 	}
 
-	if err := collectDART(); err != nil {
-		return err
+	// Date range (last 30 days)
+	to := time.Now()
+	from := to.AddDate(0, 0, -30)
+
+	fmt.Printf("\n기간: %s ~ %s\n", from.Format("2006-01-02"), to.Format("2006-01-02"))
+	fmt.Printf("작업자 수: 5\n\n")
+
+	cfg := collector.Config{Workers: 5}
+
+	// 1. Naver Finance
+	fmt.Println("📊 [1/4] 가격 데이터 수집 중...")
+	if _, err := col.FetchAllPrices(ctx, from, to, cfg); err != nil {
+		fmt.Printf("⚠️  가격 수집 실패: %v\n", err)
 	}
 
-	if err := collectNaver(); err != nil {
-		return err
+	fmt.Println("📈 [2/4] 투자자 수급 데이터 수집 중...")
+	if _, err := col.FetchAllInvestorFlow(ctx, from, to, cfg); err != nil {
+		fmt.Printf("⚠️  수급 수집 실패: %v\n", err)
 	}
 
-	fmt.Println("✅ 전체 데이터 수집 완료!")
+	fmt.Println("💰 [3/4] 시가총액 데이터 수집 중...")
+	if err := col.FetchMarketCaps(ctx); err != nil {
+		fmt.Printf("⚠️  시가총액 수집 실패: %v\n", err)
+	}
+
+	// 2. KRX Market Trends
+	fmt.Println("📉 [4/4] KRX 시장 지표 수집 중...")
+	if err := col.FetchMarketTrends(ctx); err != nil {
+		fmt.Printf("⚠️  시장 지표 수집 실패: %v\n", err)
+	}
+
+	// 3. DART Disclosures
+	dartFrom := to.AddDate(0, 0, -7)
+	fmt.Println("\n📄 [추가] DART 공시 데이터 수집 중...")
+	fmt.Printf("   기간: %s ~ %s\n", dartFrom.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err := col.FetchDisclosures(ctx, dartFrom, to); err != nil {
+		fmt.Printf("⚠️  공시 수집 실패: %v\n", err)
+	}
+
+	fmt.Println("\n✅ 전체 데이터 수집 완료!")
 	return nil
 }
 
