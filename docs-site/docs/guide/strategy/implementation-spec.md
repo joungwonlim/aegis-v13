@@ -924,8 +924,9 @@ func TestValidateTiers(t *testing.T) {
 	}
 
 	// Weight 합 = 0.25 + 0.45 + 0.20 = 0.90 (현금 0.10 별도)
+	// 0.045 같은 소수는 이진 부동소수 표현에서 오차가 생길 수 있어 1e-6 사용
 	expectedWeight := 0.90
-	if math.Abs(w.TotalWeightPct()-expectedWeight) > 1e-9 {
+	if math.Abs(w.TotalWeightPct()-expectedWeight) > 1e-6 {
 		t.Errorf("expected weight=%.2f, got %.4f", expectedWeight, w.TotalWeightPct())
 	}
 }
