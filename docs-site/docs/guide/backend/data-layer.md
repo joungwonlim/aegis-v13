@@ -27,9 +27,11 @@ description: S0 Data Collection + S1 Universe
 |---------|------|------|
 | **S0: Quality Gate** | ✅ 완료 | `internal/s0_data/quality/validator.go` |
 | **S0: Repository** | ✅ 완료 | `internal/s0_data/repository.go` |
+| **S0: Naver Client** | ✅ 완료 | `internal/external/naver/client.go` |
+| **S0: Data Collector** | ✅ 완료 | `internal/s0_data/collector/collector.go` |
 | **S1: Universe Builder** | ✅ 완료 | `internal/s1_universe/builder.go` |
 | **S1: Repository** | ✅ 완료 | `internal/s1_universe/repository.go` |
-| Data Sources (Naver/DART/KRX) | ❌ TODO | `internal/s0_data/sources/` |
+| Data Sources (DART/KRX) | ❌ TODO | `internal/external/dart/`, `internal/external/krx/` |
 | Scheduler | ❌ TODO | `internal/s0_data/scheduler/` |
 
 ## 폴더 구조
@@ -37,15 +39,25 @@ description: S0 Data Collection + S1 Universe
 ```
 internal/
 ├── s0_data/
+│   ├── collector/
+│   │   └── collector.go        # ✅ 데이터 수집 오케스트레이터
 │   ├── quality/
 │   │   ├── validator.go        # ✅ 데이터 검증
 │   │   └── validator_test.go   # ✅ 테스트
-│   └── repository.go           # ✅ DB 저장 (quality_snapshots)
+│   └── repository.go           # ✅ DB 저장
 │
 ├── s1_universe/
 │   ├── builder.go              # ✅ Universe 생성
 │   ├── builder_test.go         # ✅ 테스트
 │   └── repository.go           # ✅ DB 저장 (universe_snapshots)
+│
+├── external/                   # ✅ 외부 API 클라이언트 (SSOT)
+│   └── naver/
+│       ├── client.go           # ✅ HTTP 클라이언트
+│       ├── prices.go           # ✅ 가격 데이터 수집
+│       ├── prices_test.go      # ✅ 테스트
+│       ├── investor.go         # ✅ 투자자 수급 수집
+│       └── investor_test.go    # ✅ 테스트
 │
 └── contracts/                  # ✅ 타입 정의 (SSOT)
     ├── data.go                 # DataQualitySnapshot
@@ -53,7 +65,8 @@ internal/
 ```
 
 **TODO**:
-- `sources/` (Naver, DART, KRX 수집)
+- `external/dart/` (DART API 클라이언트)
+- `external/krx/` (KRX 데이터 수집)
 - `scheduler/` (스케줄러)
 
 ---
@@ -72,87 +85,64 @@ internal/
 | 공시 | DART | 70%+ | Real-time |
 | 종목 마스터 | KRX | 100% | Daily |
 
-### 소스 인터페이스
+### 데이터 수집 아키텍처
 
-```go
-// internal/s0_data/sources/source.go
+**구현 완료** (2026-01-10):
 
-type DataSource interface {
-    Name() string
-    Fetch(ctx context.Context, opts FetchOptions) error
-}
-
-type FetchOptions struct {
-    Symbols   []string   // 특정 종목만 (nil = 전체)
-    DateFrom  time.Time
-    DateTo    time.Time
-}
+```
+Collector (오케스트레이터)
+    ↓
+Naver Client (HTTP)
+    ↓
+Repository (DB 저장)
 ```
 
-### Naver Source 구현
+### Naver Client 구현
 
 ```go
-// internal/s0_data/sources/naver/prices.go
+// internal/external/naver/client.go
 
-type PriceSource struct {
-    client *NaverClient
-    repo   *repository.PriceRepository
+type Client struct {
+    httpClient *httputil.Client  // SSOT: pkg/httputil 사용
+    logger     *logger.Logger
+    baseURL    string
 }
 
-func (s *PriceSource) Name() string { return "naver_prices" }
+// FetchPrices: JSON API 호출 + regex 파싱
+func (c *Client) FetchPrices(ctx context.Context, stockCode string, from, to time.Time) ([]PriceData, error)
 
-func (s *PriceSource) Fetch(ctx context.Context, opts FetchOptions) error {
-    stocks := opts.Symbols
-    if len(stocks) == 0 {
-        stocks = s.repo.GetAllStockCodes(ctx)
-    }
-
-    for _, code := range stocks {
-        data, err := s.client.FetchOHLCV(ctx, code, opts.DateFrom, opts.DateTo)
-        if err != nil {
-            s.logger.Warn("fetch failed", "code", code, "error", err)
-            continue
-        }
-
-        if err := s.repo.SaveOHLCV(ctx, data); err != nil {
-            return fmt.Errorf("save OHLCV failed: %w", err)
-        }
-    }
-
-    return nil
-}
+// FetchInvestorFlow: HTML 파싱 (goquery)
+func (c *Client) FetchInvestorFlow(ctx context.Context, stockCode string, from, to time.Time) ([]InvestorFlowData, error)
 ```
 
-### 투자자 수급 수집
+**특징**:
+- JSON + regex 듀얼 파싱 (안정성)
+- HTML 파싱 with goquery (투자자 수급)
+- 페이지네이션 지원 (최대 150 페이지)
+
+### Data Collector 구현
 
 ```go
-// internal/s0_data/sources/naver/investor.go
+// internal/s0_data/collector/collector.go
 
-type InvestorSource struct {
-    client *NaverClient
-    repo   *repository.InvestorRepository
+type Collector struct {
+    naverClient *naver.Client
+    repo        *s0_data.Repository
+    logger      *logger.Logger
 }
 
-func (s *InvestorSource) Fetch(ctx context.Context, opts FetchOptions) error {
-    stocks := opts.Symbols
-    if len(stocks) == 0 {
-        stocks = s.repo.GetAllStockCodes(ctx)
-    }
+// Worker pool 패턴으로 병렬 수집
+func (c *Collector) FetchAllPrices(ctx context.Context, from, to time.Time, cfg Config) ([]FetchResult, error)
+func (c *Collector) FetchAllInvestorFlow(ctx context.Context, from, to time.Time, cfg Config) ([]FetchResult, error)
 
-    for _, code := range stocks {
-        flow, err := s.client.FetchInvestorFlow(ctx, code, opts.DateFrom, opts.DateTo)
-        if err != nil {
-            continue // 일부 종목 실패 허용
-        }
-
-        if err := s.repo.SaveInvestorFlow(ctx, flow); err != nil {
-            return fmt.Errorf("save investor flow failed: %w", err)
-        }
-    }
-
-    return nil
-}
+// 가격 + 수급 동시 수집
+func (c *Collector) FetchAll(ctx context.Context, from, to time.Time, cfg Config) error
 ```
+
+**특징**:
+- Worker pool으로 동시 처리
+- 에러 허용 (일부 종목 실패 시 계속 진행)
+- 진행 상태 로깅
 
 ---
 

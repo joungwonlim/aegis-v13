@@ -1,0 +1,332 @@
+package collector
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/wonny/aegis/v13/backend/internal/external/naver"
+	"github.com/wonny/aegis/v13/backend/internal/s0_data"
+	"github.com/wonny/aegis/v13/backend/pkg/logger"
+)
+
+// Collector orchestrates data collection from external sources
+// ⭐ SSOT: 데이터 수집 오케스트레이션은 이 패키지에서만
+type Collector struct {
+	naverClient *naver.Client
+	repo        *s0_data.Repository
+	logger      *logger.Logger
+}
+
+// Config holds collector configuration
+type Config struct {
+	Workers int // Number of concurrent workers
+}
+
+// NewCollector creates a new Collector instance
+func NewCollector(naverClient *naver.Client, repo *s0_data.Repository, log *logger.Logger) *Collector {
+	return &Collector{
+		naverClient: naverClient,
+		repo:        repo,
+		logger:      log.WithField("module", "collector"),
+	}
+}
+
+// FetchResult represents the result of a fetch operation
+type FetchResult struct {
+	StockCode    string
+	PriceCount   int
+	InvestorCount int
+	Error        error
+}
+
+// FetchAllPrices fetches price data for all active stocks
+func (c *Collector) FetchAllPrices(ctx context.Context, from, to time.Time, cfg Config) ([]FetchResult, error) {
+	// 1. Get active stocks
+	stocks, err := c.repo.GetActiveStocks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get active stocks: %w", err)
+	}
+
+	c.logger.WithFields(map[string]interface{}{
+		"stock_count": len(stocks),
+		"from":        from.Format("2006-01-02"),
+		"to":          to.Format("2006-01-02"),
+		"workers":     cfg.Workers,
+	}).Info("Starting price collection")
+
+	// 2. Create worker pool
+	results := make([]FetchResult, 0, len(stocks))
+	resultCh := make(chan FetchResult, len(stocks))
+
+	var wg sync.WaitGroup
+	stockCh := make(chan s0_data.Stock, len(stocks))
+
+	// Start workers
+	for i := 0; i < cfg.Workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			c.priceWorker(ctx, workerID, stockCh, resultCh, from, to)
+		}(i)
+	}
+
+	// Send stocks to workers
+	for _, stock := range stocks {
+		stockCh <- stock
+	}
+	close(stockCh)
+
+	// Wait for all workers to complete
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Collect results
+	successCount := 0
+	failCount := 0
+	for result := range resultCh {
+		results = append(results, result)
+		if result.Error != nil {
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	c.logger.WithFields(map[string]interface{}{
+		"success": successCount,
+		"failed":  failCount,
+		"total":   len(results),
+	}).Info("Price collection completed")
+
+	return results, nil
+}
+
+// priceWorker processes price fetching for stocks
+func (c *Collector) priceWorker(ctx context.Context, workerID int, stockCh <-chan s0_data.Stock, resultCh chan<- FetchResult, from, to time.Time) {
+	for stock := range stockCh {
+		select {
+		case <-ctx.Done():
+			resultCh <- FetchResult{
+				StockCode: stock.Code,
+				Error:     ctx.Err(),
+			}
+			return
+		default:
+		}
+
+		// Fetch prices
+		prices, err := c.naverClient.FetchPrices(ctx, stock.Code, from, to)
+		if err != nil {
+			c.logger.WithError(err).WithFields(map[string]interface{}{
+				"worker":     workerID,
+				"stock_code": stock.Code,
+			}).Error("Failed to fetch prices")
+			resultCh <- FetchResult{
+				StockCode: stock.Code,
+				Error:     err,
+			}
+			continue
+		}
+
+		// Set stock code for each price
+		for i := range prices {
+			prices[i].StockCode = stock.Code
+		}
+
+		// Save to database
+		if err := c.repo.SavePrices(ctx, prices); err != nil {
+			c.logger.WithError(err).WithFields(map[string]interface{}{
+				"worker":     workerID,
+				"stock_code": stock.Code,
+			}).Error("Failed to save prices")
+			resultCh <- FetchResult{
+				StockCode:  stock.Code,
+				PriceCount: len(prices),
+				Error:      err,
+			}
+			continue
+		}
+
+		c.logger.WithFields(map[string]interface{}{
+			"worker":     workerID,
+			"stock_code": stock.Code,
+			"count":      len(prices),
+		}).Debug("Fetched prices")
+
+		resultCh <- FetchResult{
+			StockCode:  stock.Code,
+			PriceCount: len(prices),
+		}
+	}
+}
+
+// FetchAllInvestorFlow fetches investor flow data for all active stocks
+func (c *Collector) FetchAllInvestorFlow(ctx context.Context, from, to time.Time, cfg Config) ([]FetchResult, error) {
+	// 1. Get active stocks
+	stocks, err := c.repo.GetActiveStocks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get active stocks: %w", err)
+	}
+
+	c.logger.WithFields(map[string]interface{}{
+		"stock_count": len(stocks),
+		"from":        from.Format("2006-01-02"),
+		"to":          to.Format("2006-01-02"),
+		"workers":     cfg.Workers,
+	}).Info("Starting investor flow collection")
+
+	// 2. Create worker pool
+	results := make([]FetchResult, 0, len(stocks))
+	resultCh := make(chan FetchResult, len(stocks))
+
+	var wg sync.WaitGroup
+	stockCh := make(chan s0_data.Stock, len(stocks))
+
+	// Start workers
+	for i := 0; i < cfg.Workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			c.investorWorker(ctx, workerID, stockCh, resultCh, from, to)
+		}(i)
+	}
+
+	// Send stocks to workers
+	for _, stock := range stocks {
+		stockCh <- stock
+	}
+	close(stockCh)
+
+	// Wait for all workers to complete
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Collect results
+	successCount := 0
+	failCount := 0
+	for result := range resultCh {
+		results = append(results, result)
+		if result.Error != nil {
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	c.logger.WithFields(map[string]interface{}{
+		"success": successCount,
+		"failed":  failCount,
+		"total":   len(results),
+	}).Info("Investor flow collection completed")
+
+	return results, nil
+}
+
+// investorWorker processes investor flow fetching for stocks
+func (c *Collector) investorWorker(ctx context.Context, workerID int, stockCh <-chan s0_data.Stock, resultCh chan<- FetchResult, from, to time.Time) {
+	for stock := range stockCh {
+		select {
+		case <-ctx.Done():
+			resultCh <- FetchResult{
+				StockCode: stock.Code,
+				Error:     ctx.Err(),
+			}
+			return
+		default:
+		}
+
+		// Fetch investor flow
+		flows, err := c.naverClient.FetchInvestorFlow(ctx, stock.Code, from, to)
+		if err != nil {
+			c.logger.WithError(err).WithFields(map[string]interface{}{
+				"worker":     workerID,
+				"stock_code": stock.Code,
+			}).Error("Failed to fetch investor flow")
+			resultCh <- FetchResult{
+				StockCode: stock.Code,
+				Error:     err,
+			}
+			continue
+		}
+
+		// Set stock code for each flow
+		for i := range flows {
+			flows[i].StockCode = stock.Code
+		}
+
+		// Save to database
+		if err := c.repo.SaveInvestorFlow(ctx, flows); err != nil {
+			c.logger.WithError(err).WithFields(map[string]interface{}{
+				"worker":     workerID,
+				"stock_code": stock.Code,
+			}).Error("Failed to save investor flow")
+			resultCh <- FetchResult{
+				StockCode:     stock.Code,
+				InvestorCount: len(flows),
+				Error:         err,
+			}
+			continue
+		}
+
+		c.logger.WithFields(map[string]interface{}{
+			"worker":     workerID,
+			"stock_code": stock.Code,
+			"count":      len(flows),
+		}).Debug("Fetched investor flow")
+
+		resultCh <- FetchResult{
+			StockCode:     stock.Code,
+			InvestorCount: len(flows),
+		}
+	}
+}
+
+// FetchAll fetches both prices and investor flow concurrently
+func (c *Collector) FetchAll(ctx context.Context, from, to time.Time, cfg Config) error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, 2)
+
+	// Fetch prices
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := c.FetchAllPrices(ctx, from, to, cfg)
+		if err != nil {
+			errCh <- fmt.Errorf("fetch prices: %w", err)
+		}
+	}()
+
+	// Fetch investor flow
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := c.FetchAllInvestorFlow(ctx, from, to, cfg)
+		if err != nil {
+			errCh <- fmt.Errorf("fetch investor flow: %w", err)
+		}
+	}()
+
+	// Wait for all operations to complete
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	// Collect errors
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("collection errors: %v", errs)
+	}
+
+	return nil
+}

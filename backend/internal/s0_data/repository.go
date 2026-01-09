@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wonny/aegis/v13/backend/internal/contracts"
+	"github.com/wonny/aegis/v13/backend/internal/external/naver"
 )
 
 // Repository handles data persistence for S0
@@ -130,4 +131,135 @@ func (r *Repository) GetQualitySnapshotByDate(ctx context.Context, date time.Tim
 	}
 
 	return snapshot, nil
+}
+
+// Stock represents a stock entity
+type Stock struct {
+	Code   string
+	Name   string
+	Market string
+	Status string
+}
+
+// GetActiveStocks retrieves all active stocks
+func (r *Repository) GetActiveStocks(ctx context.Context) ([]Stock, error) {
+	query := `
+		SELECT code, name, market, status
+		FROM data.stocks
+		WHERE status = 'active'
+		ORDER BY code
+	`
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query active stocks: %w", err)
+	}
+	defer rows.Close()
+
+	var stocks []Stock
+	for rows.Next() {
+		var s Stock
+		if err := rows.Scan(&s.Code, &s.Name, &s.Market, &s.Status); err != nil {
+			return nil, fmt.Errorf("scan stock: %w", err)
+		}
+		stocks = append(stocks, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return stocks, nil
+}
+
+// SavePrices saves price data to the database (bulk upsert)
+func (r *Repository) SavePrices(ctx context.Context, prices []naver.PriceData) error {
+	if len(prices) == 0 {
+		return nil
+	}
+
+	query := `
+		INSERT INTO data.daily_prices (
+			stock_code, trade_date, open_price, high_price, low_price,
+			close_price, volume, trading_value, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
+			open_price = EXCLUDED.open_price,
+			high_price = EXCLUDED.high_price,
+			low_price = EXCLUDED.low_price,
+			close_price = EXCLUDED.close_price,
+			volume = EXCLUDED.volume,
+			trading_value = EXCLUDED.trading_value,
+			updated_at = NOW()
+	`
+
+	// Batch insert using transactions
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for _, p := range prices {
+		_, err := tx.Exec(ctx, query,
+			p.StockCode, p.TradeDate, p.OpenPrice, p.HighPrice, p.LowPrice,
+			p.ClosePrice, p.Volume, p.TradingValue,
+		)
+		if err != nil {
+			return fmt.Errorf("insert price for %s: %w", p.StockCode, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// SaveInvestorFlow saves investor flow data to the database (bulk upsert)
+func (r *Repository) SaveInvestorFlow(ctx context.Context, flows []naver.InvestorFlowData) error {
+	if len(flows) == 0 {
+		return nil
+	}
+
+	query := `
+		INSERT INTO data.investor_flow (
+			stock_code, trade_date, foreign_net, institution_net, individual_net,
+			financial_net, insurance_net, trust_net, pension_net,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
+			foreign_net = EXCLUDED.foreign_net,
+			institution_net = EXCLUDED.institution_net,
+			individual_net = EXCLUDED.individual_net,
+			financial_net = EXCLUDED.financial_net,
+			insurance_net = EXCLUDED.insurance_net,
+			trust_net = EXCLUDED.trust_net,
+			pension_net = EXCLUDED.pension_net,
+			updated_at = NOW()
+	`
+
+	// Batch insert using transactions
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for _, f := range flows {
+		_, err := tx.Exec(ctx, query,
+			f.StockCode, f.TradeDate, f.ForeignNet, f.InstitutionNet, f.IndividualNet,
+			f.FinancialNet, f.InsuranceNet, f.TrustNet, f.PensionNet,
+		)
+		if err != nil {
+			return fmt.Errorf("insert investor flow for %s: %w", f.StockCode, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
 }
