@@ -32,7 +32,7 @@ func init() {
 }
 
 func runTestLogger(cmd *cobra.Command, args []string) error {
-	fmt.Println("=== Aegis v13 Logger Test ===\n")
+	fmt.Println("=== Aegis v13 Logger Test ===")
 
 	// Test 1: JSON Format (Production)
 	fmt.Println("1. JSON Format (Production)")

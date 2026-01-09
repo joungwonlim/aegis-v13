@@ -34,7 +34,7 @@ func init() {
 }
 
 func runTestDB(cmd *cobra.Command, args []string) error {
-	fmt.Println("=== Aegis v13 Database Connection Test ===\n")
+	fmt.Println("=== Aegis v13 Database Connection Test ===")
 
 	// Load configuration
 	fmt.Println("Loading configuration...")
@@ -52,7 +52,7 @@ func runTestDB(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("❌ Failed to connect to database: %w", err)
 	}
 	defer db.Close()
-	fmt.Println("✅ Database connection established\n")
+	fmt.Println("✅ Database connection established")
 
 	// Check connection
 	fmt.Println("Testing connection (Ping)...")
@@ -62,7 +62,7 @@ func runTestDB(cmd *cobra.Command, args []string) error {
 	if err := db.Ping(ctx); err != nil {
 		return fmt.Errorf("❌ Failed to ping database: %w", err)
 	}
-	fmt.Println("✅ Ping successful\n")
+	fmt.Println("✅ Ping successful")
 
 	// Get health status
 	fmt.Println("Getting health status...")

@@ -60,7 +60,7 @@ func init() {
 }
 
 func runStatusStart(cmd *cobra.Command, args []string) error {
-	fmt.Println("=== Aegis v13 Queue Status Monitor ===\n")
+	fmt.Println("=== Aegis v13 Queue Status Monitor ===")
 	fmt.Printf("Refresh: %v\n", statusRefresh)
 	fmt.Printf("Press Ctrl+C to stop\n\n")
 
@@ -85,7 +85,7 @@ func runStatusStart(cmd *cobra.Command, args []string) error {
 			// Clear screen (ANSI escape code)
 			fmt.Print("\033[H\033[2J")
 
-			fmt.Println("=== Aegis v13 Queue Status Monitor ===\n")
+			fmt.Println("=== Aegis v13 Queue Status Monitor ===")
 			fmt.Printf("Refresh: %v | Last update: %s\n\n", statusRefresh, time.Now().Format("15:04:05"))
 
 			displayStatus()

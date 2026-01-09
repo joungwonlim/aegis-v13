@@ -59,7 +59,7 @@ func init() {
 }
 
 func runWorkerStart(cmd *cobra.Command, args []string) error {
-	fmt.Println("=== Aegis v13 Background Worker ===\n")
+	fmt.Println("=== Aegis v13 Background Worker ===")
 	fmt.Printf("Concurrency: %d workers\n", workerConcurrency)
 	fmt.Printf("Queue: PostgreSQL\n\n")
 
@@ -69,7 +69,7 @@ func runWorkerStart(cmd *cobra.Command, args []string) error {
 
 	// Worker loop (placeholder)
 	fmt.Println("🚀 Worker started")
-	fmt.Println("   Press Ctrl+C to stop gracefully\n")
+	fmt.Println("   Press Ctrl+C to stop gracefully")
 
 	// Simulate worker processing
 	ticker := time.NewTicker(5 * time.Second)
@@ -216,10 +216,4 @@ func getJobTag(jobType string) string {
 	default:
 		return "Worker"
 	}
-}
-
-func parseTime(timeStr string) time.Time {
-	t, _ := time.Parse("15:04:05", timeStr)
-	now := time.Now()
-	return time.Date(now.Year(), now.Month(), now.Day(), t.Hour(), t.Minute(), t.Second(), 0, now.Location())
 }

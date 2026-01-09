@@ -45,8 +45,7 @@ Example:
 
 var (
 	// Fetcher flags
-	fetcherSource string
-	fetcherAsync  bool
+	fetcherAsync bool
 )
 
 func init() {
@@ -130,7 +129,7 @@ func collectNaver() error {
 }
 
 func collectAll() error {
-	fmt.Println("🚀 전체 소스 데이터 수집 시작...\n")
+	fmt.Println("🚀 전체 소스 데이터 수집 시작...")
 
 	if err := collectKIS(); err != nil {
 		return err

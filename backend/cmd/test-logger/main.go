@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Aegis v13 Logger Test ===\n")
+	fmt.Println("=== Aegis v13 Logger Test ===")
 
 	// Test 1: JSON Format (Production)
 	fmt.Println("1. JSON Format (Production)")

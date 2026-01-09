@@ -359,7 +359,7 @@ func TestLogFormats(t *testing.T) {
 
 			// Read captured output
 			var buf bytes.Buffer
-			io.Copy(&buf, r)
+			_, _ = io.Copy(&buf, r)
 			output := buf.String()
 
 			// Verify output exists

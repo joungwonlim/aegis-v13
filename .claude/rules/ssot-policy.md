@@ -12,7 +12,7 @@
 |------|----------|----------|
 | env 파싱 | `pkg/config` | `os.Getenv()`, `godotenv.Load()` 외부 사용 |
 | DB pool | `pkg/database` | `pgxpool.New()`, `pgxpool.ParseConfig()` 외부 사용 |
-| HTTP client | `pkg/httpclient` | `http.Client{}`, `http.NewRequest()` 외부 사용 |
+| HTTP client | `pkg/httputil` | `http.Client{}`, `http.NewRequest()` 외부 사용 |
 | 타입 정의 | `internal/contracts` | 레이어에서 중복 정의 |
 | 외부 API | `internal/external` | 레이어에서 직접 호출 |
 

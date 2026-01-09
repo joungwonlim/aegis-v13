@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Aegis v13 Database Connection Test ===\n")
+	fmt.Println("=== Aegis v13 Database Connection Test ===")
 
 	// Load configuration
 	fmt.Println("Loading configuration...")
@@ -29,7 +29,7 @@ func main() {
 		log.Fatalf("❌ Failed to connect to database: %v", err)
 	}
 	defer db.Close()
-	fmt.Println("✅ Database connection established\n")
+	fmt.Println("✅ Database connection established")
 
 	// Check connection
 	fmt.Println("Testing connection (Ping)...")
@@ -39,7 +39,7 @@ func main() {
 	if err := db.Ping(ctx); err != nil {
 		log.Fatalf("❌ Failed to ping database: %v", err)
 	}
-	fmt.Println("✅ Ping successful\n")
+	fmt.Println("✅ Ping successful")
 
 	// Get health status
 	fmt.Println("Getting health status...")

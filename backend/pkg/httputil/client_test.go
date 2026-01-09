@@ -103,7 +103,7 @@ func TestGet(t *testing.T) {
 			t.Errorf("Expected GET request, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 
@@ -143,7 +143,7 @@ func TestPostJSON(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"created":true}`))
+		_, _ = w.Write([]byte(`{"created":true}`))
 	}))
 	defer server.Close()
 
@@ -186,7 +186,7 @@ func TestRetryOn5xx(t *testing.T) {
 		}
 		// Success on 3rd attempt
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 
