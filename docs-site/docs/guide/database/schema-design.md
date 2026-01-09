@@ -312,7 +312,7 @@ CREATE TABLE signals.factor_scores (
     PRIMARY KEY (date, stock_code)
 );
 
-CREATE INDEX idx_factor_scores_date ON signals.factor_scores(date);
+-- PK가 (date, stock_code)이므로 date 단독 인덱스는 불필요
 CREATE INDEX idx_factor_scores_total ON signals.factor_scores(date, total_score DESC);
 ```
 
@@ -346,7 +346,7 @@ CREATE TABLE signals.flow_details (
     PRIMARY KEY (date, stock_code)
 );
 
-CREATE INDEX idx_flow_details_date ON signals.flow_details(date);
+-- PK가 (date, stock_code)이므로 date 단독 인덱스는 불필요
 ```
 
 ### technical_details (기술적 지표 상세)
@@ -448,7 +448,7 @@ CREATE TABLE execution.orders (
     order_id        VARCHAR(50) UNIQUE,   -- 증권사 주문번호
 
     stock_code      VARCHAR(10) NOT NULL,
-    stock_name      VARCHAR(100),
+    -- stock_name 제거: data.stocks와 JOIN으로 조회 (정규화)
     side            VARCHAR(4) NOT NULL,  -- BUY, SELL
 
     quantity        INT NOT NULL,
