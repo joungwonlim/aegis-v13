@@ -828,6 +828,29 @@ CREATE TABLE backtest.simulation_results (
 
 **필요 조건**: 백테스트 엔진 구현
 
+### 5. 네이버 랭킹 데이터 활용
+
+실시간 시장 모니터링 및 시그널 보조 데이터로 활용:
+
+```yaml
+활용 가능한 랭킹:
+  - 거래량 상위: /sise/lastsearch2.naver
+  - 상승률 상위: /sise/sise_rise.naver
+  - 외국인 순매수: /sise/sise_deal.naver
+  - 기관 순매수: /sise/sise_deal.naver
+  - 신고가: /sise/sise_high.naver
+  - 저PER/PBR: /sise/field_submit.naver
+
+활용 방안:
+  - 실시간 급등주/거래량 상위 모니터링
+  - 우리 시스템 랭킹과 크로스 체크 (검증용)
+  - Event 시그널 강화 (신고가 돌파, 급등 탐지)
+
+구현 위치: external/naver/ranking.go
+```
+
+**필요 조건**: Phase 1 데이터 레이어 안정화 후 검토
+
 ---
 
 **Prev**: [Frontend Folder Structure](../frontend/folder-structure.md)
