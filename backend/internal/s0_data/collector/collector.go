@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wonny/aegis/v13/backend/internal/external/dart"
+	"github.com/wonny/aegis/v13/backend/internal/external/krx"
 	"github.com/wonny/aegis/v13/backend/internal/external/naver"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data"
 	"github.com/wonny/aegis/v13/backend/pkg/logger"
@@ -15,6 +17,8 @@ import (
 // ⭐ SSOT: 데이터 수집 오케스트레이션은 이 패키지에서만
 type Collector struct {
 	naverClient *naver.Client
+	dartClient  *dart.Client
+	krxClient   *krx.Client
 	repo        *s0_data.Repository
 	logger      *logger.Logger
 }
@@ -25,9 +29,17 @@ type Config struct {
 }
 
 // NewCollector creates a new Collector instance
-func NewCollector(naverClient *naver.Client, repo *s0_data.Repository, log *logger.Logger) *Collector {
+func NewCollector(
+	naverClient *naver.Client,
+	dartClient *dart.Client,
+	krxClient *krx.Client,
+	repo *s0_data.Repository,
+	log *logger.Logger,
+) *Collector {
 	return &Collector{
 		naverClient: naverClient,
+		dartClient:  dartClient,
+		krxClient:   krxClient,
 		repo:        repo,
 		logger:      log.WithField("module", "collector"),
 	}

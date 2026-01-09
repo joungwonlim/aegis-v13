@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wonny/aegis/v13/backend/internal/contracts"
+	"github.com/wonny/aegis/v13/backend/internal/external/dart"
+	"github.com/wonny/aegis/v13/backend/internal/external/krx"
 	"github.com/wonny/aegis/v13/backend/internal/external/naver"
 )
 
@@ -255,6 +258,94 @@ func (r *Repository) SaveInvestorFlow(ctx context.Context, flows []naver.Investo
 		if err != nil {
 			return fmt.Errorf("insert investor flow for %s: %w", f.StockCode, err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// SaveDisclosures saves disclosure data to the database (bulk insert)
+// ⭐ SSOT: DART 공시 데이터 저장은 이 함수에서만
+func (r *Repository) SaveDisclosures(ctx context.Context, disclosures []dart.Disclosure) error {
+	if len(disclosures) == 0 {
+		return nil
+	}
+
+	query := `
+		INSERT INTO data.disclosures (
+			stock_code, disclosed_at, title, category, content, url, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		ON CONFLICT (stock_code, disclosed_at, title) DO NOTHING
+	`
+
+	// Batch insert using transactions
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for _, d := range disclosures {
+		_, err := tx.Exec(ctx, query,
+			d.CorpCode, d.ReportDate, d.ReportName, d.Category, d.Content, d.URL,
+		)
+		if err != nil {
+			return fmt.Errorf("insert disclosure for %s: %w", d.CorpCode, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// SaveMarketTrend saves market trend data (KRX) to the database
+// ⭐ SSOT: KRX 시장 지표 저장은 이 함수에서만
+func (r *Repository) SaveMarketTrend(ctx context.Context, indexName string, data *krx.MarketTrendData) error {
+	if data == nil {
+		return nil
+	}
+
+	query := `
+		INSERT INTO data.market_indicators (
+			trade_date, indicator_type, indicator_value, source, created_at
+		) VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (trade_date, indicator_type) DO UPDATE SET
+			indicator_value = EXCLUDED.indicator_value,
+			source = EXCLUDED.source,
+			updated_at = NOW()
+	`
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Save foreign net
+	indicatorType := fmt.Sprintf("%s_foreign_net", strings.ToLower(indexName))
+	_, err = tx.Exec(ctx, query, data.TradeDate, indicatorType, data.ForeignNet, "naver")
+	if err != nil {
+		return fmt.Errorf("insert foreign net: %w", err)
+	}
+
+	// Save institution net
+	indicatorType = fmt.Sprintf("%s_institution_net", strings.ToLower(indexName))
+	_, err = tx.Exec(ctx, query, data.TradeDate, indicatorType, data.InstitutionNet, "naver")
+	if err != nil {
+		return fmt.Errorf("insert institution net: %w", err)
+	}
+
+	// Save individual net
+	indicatorType = fmt.Sprintf("%s_individual_net", strings.ToLower(indexName))
+	_, err = tx.Exec(ctx, query, data.TradeDate, indicatorType, data.IndividualNet, "naver")
+	if err != nil {
+		return fmt.Errorf("insert individual net: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
