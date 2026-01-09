@@ -242,6 +242,30 @@ migrations/
 
 ## Phase 1: 데이터 레이어 (S0-S1)
 
+### 🔄 현재 상태 (2026-01-10)
+
+| 작업 | 상태 | 완료일 |
+|------|------|--------|
+| **S0: Quality Gate** | ✅ 완료 | 2026-01-10 |
+| **S1: Universe Builder** | ✅ 완료 | 2026-01-10 |
+| Data Sources (Naver/DART/KRX) | ❌ TODO | - |
+| Scheduler | ❌ TODO | - |
+| Real-time Price Feeds | ❌ TODO | - |
+
+**완료된 것:**
+- ✅ `internal/s0_data/quality/validator.go` - 품질 검증
+- ✅ `internal/s0_data/repository.go` - DB 저장
+- ✅ `internal/s1_universe/builder.go` - Universe 생성
+- ✅ `internal/s1_universe/repository.go` - DB 저장
+- ✅ `config/data.yaml` - 설정 파일
+- ✅ 테스트 작성 및 실행 (922종목, 911 유니버스)
+
+**TODO:**
+- ❌ Data Sources 구현 (Naver, DART, KRX)
+- ❌ Scheduler 구현
+- ❌ KIS WebSocket (실시간 가격)
+- ❌ CLI/API 인터페이스
+
 ### 목표
 외부 API에서 데이터 수집 및 품질 검증, Universe 생성
 

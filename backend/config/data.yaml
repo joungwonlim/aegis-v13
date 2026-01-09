@@ -1,0 +1,24 @@
+# =====================================================
+# Data Layer Configuration (S0 + S1)
+# =====================================================
+
+# S0: Data Quality
+quality:
+  min_price_coverage: 1.0        # 100% (필수)
+  min_volume_coverage: 1.0       # 100% (필수)
+  min_market_cap_coverage: 0.95  # 95%
+  min_financial_coverage: 0.80   # 80%
+  min_investor_coverage: 0.80    # 80%
+  min_disclosure_coverage: 0.70  # 70%
+
+# S1: Universe
+universe:
+  min_market_cap: 1000       # 1000억원 이상
+  min_volume: 500            # 5억원 이상 (20일 평균)
+  min_listing_days: 90       # 상장 90일 이상
+  exclude_admin: true        # 관리종목 제외
+  exclude_halt: true         # 거래정지 제외
+  exclude_spac: true         # SPAC 제외
+  exclude_sectors:
+    - "금융"
+    - "보험"
