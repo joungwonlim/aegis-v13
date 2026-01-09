@@ -116,7 +116,10 @@ backend/
 │   │
 │   ├── signals/              # S2: 시그널 레이어
 │   │   ├── momentum.go
+│   │   ├── technical.go
 │   │   ├── value.go
+│   │   ├── quality.go
+│   │   ├── flow.go           # 수급 시그널 ⭐
 │   │   ├── event.go
 │   │   └── builder.go        # SignalBuilder 구현
 │   │
@@ -163,15 +166,15 @@ backend/
 
 | 레이어 | 파일 수 | 역할 |
 |--------|---------|------|
-| contracts | 5 | 타입/인터페이스 정의 |
+| contracts | 6 | 타입/인터페이스 정의 |
 | brain | 1 | 오케스트레이터 |
 | data | 3 | 데이터 수집/유니버스 |
-| signals | 4 | 시그널 생성 |
+| signals | 7 | 시그널 생성 (momentum, technical, value, quality, flow, event, builder) |
 | selection | 2 | 스크리닝/랭킹 |
 | portfolio | 2 | 포트폴리오 구성 |
 | execution | 2 | 주문 실행 |
 | audit | 2 | 성과 분석 |
-| **Total** | **~21** | v10 brain 42개 → 21개 |
+| **Total** | **~25** | v10 brain 42개 → 25개 |
 
 ---
 

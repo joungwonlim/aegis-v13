@@ -123,11 +123,12 @@ type ranker struct {
 }
 
 type WeightConfig struct {
-    Momentum  float64 `yaml:"momentum"`   // 0.30
-    Value     float64 `yaml:"value"`      // 0.25
-    Quality   float64 `yaml:"quality"`    // 0.20
-    Event     float64 `yaml:"event"`      // 0.15
-    Technical float64 `yaml:"technical"`  // 0.10
+    Momentum  float64 `yaml:"momentum"`   // 0.25
+    Technical float64 `yaml:"technical"`  // 0.15
+    Value     float64 `yaml:"value"`      // 0.20
+    Quality   float64 `yaml:"quality"`    // 0.15
+    Flow      float64 `yaml:"flow"`       // 0.20 ⭐ 수급
+    Event     float64 `yaml:"event"`      // 0.05
 }
 
 func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.SignalSet) ([]contracts.RankedStock, error) {
@@ -136,18 +137,26 @@ func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.Si
     for _, code := range codes {
         signal := signals.Signals[code]
 
-        // 가중 합산
+        // 가중 합산 (SSOT: data-flow.md 기준)
         totalScore :=
-            signal.Factors["momentum"] * r.weights.Momentum +
-            signal.Factors["value"] * r.weights.Value +
-            signal.Factors["quality"] * r.weights.Quality +
-            signal.Factors["event"] * r.weights.Event +
-            signal.Factors["technical"] * r.weights.Technical
+            signal.Momentum * r.weights.Momentum +      // 25%
+            signal.Technical * r.weights.Technical +    // 15%
+            signal.Value * r.weights.Value +            // 20%
+            signal.Quality * r.weights.Quality +        // 15%
+            signal.Flow * r.weights.Flow +              // 20% ⭐
+            signal.Event * r.weights.Event              // 5%
 
         ranked = append(ranked, contracts.RankedStock{
             Code:       code,
             TotalScore: totalScore,
-            Factors:    signal.Factors,
+            Scores: contracts.ScoreDetail{
+                Momentum:  signal.Momentum,
+                Technical: signal.Technical,
+                Value:     signal.Value,
+                Quality:   signal.Quality,
+                Flow:      signal.Flow,
+                Event:     signal.Event,
+            },
         })
     }
 
@@ -181,11 +190,12 @@ screener:
 
 ranker:
   weights:
-    momentum: 0.30
-    value: 0.25
-    quality: 0.20
-    event: 0.15
-    technical: 0.10
+    momentum: 0.25
+    technical: 0.15
+    value: 0.20
+    quality: 0.15
+    flow: 0.20       # 수급 ⭐
+    event: 0.05
 
   # Top N 선택
   top_n: 30

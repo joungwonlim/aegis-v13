@@ -22,7 +22,10 @@ Universe에 포함된 종목들의 **팩터/이벤트 시그널**을 계산
 internal/signals/
 ├── builder.go      # SignalBuilder 구현 (조합)
 ├── momentum.go     # 모멘텀 시그널
+├── technical.go    # 기술적 시그널 (RSI, MACD)
 ├── value.go        # 가치 시그널
+├── quality.go      # 퀄리티 시그널
+├── flow.go         # 수급 시그널 ⭐
 ├── event.go        # 이벤트 시그널
 └── repository.go   # DB 접근
 ```
@@ -45,32 +48,39 @@ type SignalBuilder interface {
 // internal/signals/builder.go
 
 type signalBuilder struct {
-    momentum MomentumCalculator
-    value    ValueCalculator
-    event    EventCalculator
-    db       *pgxpool.Pool
+    momentum  MomentumCalculator
+    technical TechnicalCalculator
+    value     ValueCalculator
+    quality   QualityCalculator
+    flow      FlowCalculator      // 수급 ⭐
+    event     EventCalculator
+    db        *pgxpool.Pool
 }
 
 func (b *signalBuilder) Build(ctx context.Context, universe *contracts.Universe) (*contracts.SignalSet, error) {
     signalSet := &contracts.SignalSet{
         Date:    universe.Date,
-        Signals: make(map[string]contracts.StockSignal),
+        Signals: make(map[string]*contracts.StockSignals),
     }
 
     for _, code := range universe.Stocks {
-        signal := contracts.StockSignal{
-            Code:    code,
-            Factors: make(map[string]float64),
+        signal := &contracts.StockSignals{
+            Code: code,
         }
 
         // 각 시그널 계산
-        signal.Factors["momentum"] = b.momentum.Calculate(ctx, code)
-        signal.Factors["value"] = b.value.Calculate(ctx, code)
-        signal.Factors["quality"] = b.calculateQuality(ctx, code)
+        signal.Momentum = b.momentum.Calculate(ctx, code)
+        signal.Technical = b.technical.Calculate(ctx, code)
+        signal.Value = b.value.Calculate(ctx, code)
+        signal.Quality = b.quality.Calculate(ctx, code)
+        signal.Flow = b.flow.Calculate(ctx, code)  // 수급 ⭐
 
         // 이벤트 시그널
         signal.Events = b.event.GetEvents(ctx, code)
-        signal.Factors["event"] = b.event.CalculateScore(signal.Events)
+        signal.Event = b.event.CalculateScore(signal.Events)
+
+        // 상세 데이터
+        signal.Details = b.buildDetails(ctx, code)
 
         signal.UpdatedAt = time.Now()
         signalSet.Signals[code] = signal
@@ -136,6 +146,65 @@ func (c *valueCalculator) Calculate(ctx context.Context, code string) float64 {
     return perScore*0.4 + pbrScore*0.4 + psrScore*0.2
 }
 ```
+
+---
+
+## Flow Signal (수급)
+
+```go
+// internal/signals/flow.go
+
+type FlowCalculator interface {
+    Calculate(ctx context.Context, code string) float64
+}
+
+type flowCalculator struct {
+    db *pgxpool.Pool
+}
+
+func (c *flowCalculator) Calculate(ctx context.Context, code string) float64 {
+    // 1. 외국인/기관 순매수 데이터 조회
+    flow := c.getInvestorFlow(ctx, code)
+
+    // 2. 5일/20일 누적 순매수
+    foreignScore := c.normalizeFlow(flow.ForeignNet5D, flow.ForeignNet20D)
+    instScore := c.normalizeFlow(flow.InstNet5D, flow.InstNet20D)
+
+    // 3. 가중 합산 (외국인 60%, 기관 40%)
+    return foreignScore*0.6 + instScore*0.4
+}
+
+func (c *flowCalculator) getInvestorFlow(ctx context.Context, code string) *FlowData {
+    query := `
+        SELECT
+            SUM(CASE WHEN date > NOW() - INTERVAL '5 days' THEN foreign_net ELSE 0 END) as foreign_5d,
+            SUM(CASE WHEN date > NOW() - INTERVAL '20 days' THEN foreign_net ELSE 0 END) as foreign_20d,
+            SUM(CASE WHEN date > NOW() - INTERVAL '5 days' THEN inst_net ELSE 0 END) as inst_5d,
+            SUM(CASE WHEN date > NOW() - INTERVAL '20 days' THEN inst_net ELSE 0 END) as inst_20d
+        FROM data.investor_flow
+        WHERE stock_code = $1 AND date > NOW() - INTERVAL '20 days'
+    `
+    // ...
+}
+
+func (c *flowCalculator) normalizeFlow(short, long int64) float64 {
+    // 단기 추세 (5일)와 장기 추세 (20일) 조합
+    // Z-score 정규화 후 -1.0 ~ 1.0 범위로 변환
+    shortScore := c.zScore(short)
+    longScore := c.zScore(long)
+
+    return shortScore*0.7 + longScore*0.3
+}
+```
+
+### 수급 점수 해석
+
+| 점수 범위 | 해석 |
+|-----------|------|
+| 0.5 ~ 1.0 | 강한 매수세 (외국인+기관 동시 순매수) |
+| 0.0 ~ 0.5 | 약한 매수세 |
+| -0.5 ~ 0.0 | 약한 매도세 |
+| -1.0 ~ -0.5 | 강한 매도세 (외국인+기관 동시 순매도) |
 
 ---
 
@@ -223,12 +292,27 @@ CREATE TABLE signals.factor_scores (
     date        DATE NOT NULL,
     code        VARCHAR(10) NOT NULL,
     momentum    DECIMAL(8,4),
+    technical   DECIMAL(8,4),
     value       DECIMAL(8,4),
     quality     DECIMAL(8,4),
+    flow        DECIMAL(8,4),       -- 수급 시그널 ⭐
     event       DECIMAL(8,4),
-    technical   DECIMAL(8,4),
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(date, code)
+);
+
+-- signals.flow_details: 수급 상세 (5D/20D 누적) ⭐
+CREATE TABLE signals.flow_details (
+    id              SERIAL PRIMARY KEY,
+    date            DATE NOT NULL,
+    stock_code      VARCHAR(10) NOT NULL,
+    foreign_net_5d  BIGINT,         -- 외국인 5일 순매수
+    foreign_net_20d BIGINT,         -- 외국인 20일 순매수
+    inst_net_5d     BIGINT,         -- 기관 5일 순매수
+    inst_net_20d    BIGINT,         -- 기관 20일 순매수
+    flow_score      DECIMAL(8,4),   -- 종합 수급 점수
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(date, stock_code)
 );
 
 -- signals.events: 이벤트 로그
@@ -243,6 +327,8 @@ CREATE TABLE signals.events (
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX idx_factor_scores_date ON signals.factor_scores(date, code);
+CREATE INDEX idx_flow_details_date ON signals.flow_details(date, stock_code);
 CREATE INDEX idx_events_code_date ON signals.events(code, event_date);
 ```
 

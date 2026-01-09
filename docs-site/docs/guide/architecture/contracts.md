@@ -63,15 +63,52 @@ type Universe struct {
 // internal/contracts/signals.go
 
 type SignalSet struct {
-    Date    time.Time              `json:"date"`
-    Signals map[string]StockSignal `json:"signals"`
+    Date    time.Time                `json:"date"`
+    Signals map[string]*StockSignals `json:"signals"`
 }
 
-type StockSignal struct {
-    Code      string             `json:"code"`
-    Factors   map[string]float64 `json:"factors"`
-    Events    []EventSignal      `json:"events"`
-    UpdatedAt time.Time          `json:"updated_at"`
+type StockSignals struct {
+    Code       string  `json:"code"`
+
+    // 시그널 점수 (-1.0 ~ 1.0)
+    Momentum   float64 `json:"momentum"`
+    Technical  float64 `json:"technical"`
+    Value      float64 `json:"value"`
+    Quality    float64 `json:"quality"`
+    Flow       float64 `json:"flow"`    // 수급 시그널
+    Event      float64 `json:"event"`
+
+    // 원본 데이터
+    Details    SignalDetails `json:"details"`
+    Events     []EventSignal `json:"events"`
+    UpdatedAt  time.Time     `json:"updated_at"`
+}
+
+type SignalDetails struct {
+    // Momentum
+    Return1M   float64 `json:"return_1m"`
+    Return3M   float64 `json:"return_3m"`
+    VolumeRate float64 `json:"volume_rate"`
+
+    // Technical
+    RSI        float64 `json:"rsi"`
+    MACD       float64 `json:"macd"`
+    MA20Cross  int     `json:"ma20_cross"`
+
+    // Value
+    PER        float64 `json:"per"`
+    PBR        float64 `json:"pbr"`
+    PSR        float64 `json:"psr"`
+
+    // Quality
+    ROE        float64 `json:"roe"`
+    DebtRatio  float64 `json:"debt_ratio"`
+
+    // Flow (수급)
+    ForeignNet5D  int64 `json:"foreign_net_5d"`
+    ForeignNet20D int64 `json:"foreign_net_20d"`
+    InstNet5D     int64 `json:"inst_net_5d"`
+    InstNet20D    int64 `json:"inst_net_20d"`
 }
 
 type EventSignal struct {
@@ -79,6 +116,33 @@ type EventSignal struct {
     Score     float64   `json:"score"`
     Source    string    `json:"source"`
     Timestamp time.Time `json:"timestamp"`
+}
+```
+
+---
+
+## 3.5 RankedStock
+
+**용도**: S4 → S5 랭킹 결과 전달
+
+```go
+// internal/contracts/ranked.go
+
+type RankedStock struct {
+    Code       string      `json:"code"`
+    Name       string      `json:"name"`
+    Rank       int         `json:"rank"`
+    TotalScore float64     `json:"total_score"`
+    Scores     ScoreDetail `json:"scores"`
+}
+
+type ScoreDetail struct {
+    Momentum  float64 `json:"momentum"`
+    Technical float64 `json:"technical"`
+    Value     float64 `json:"value"`
+    Quality   float64 `json:"quality"`
+    Flow      float64 `json:"flow"`   // 수급
+    Event     float64 `json:"event"`
 }
 ```
 

@@ -122,8 +122,15 @@ type Attribution struct {
 func (a *auditor) Attribution(ctx context.Context, period string) ([]Attribution, error) {
     attrs := make([]Attribution, 0)
 
-    // 팩터별 기여도 계산
-    factors := []string{"momentum", "value", "quality", "event"}
+    // 팩터별 기여도 계산 (SSOT: data-flow.md 기준)
+    factors := []string{
+        "momentum",   // 25%
+        "technical",  // 15%
+        "value",      // 20%
+        "quality",    // 15%
+        "flow",       // 20% ⭐ 수급
+        "event",      // 5%
+    }
 
     for _, factor := range factors {
         contrib := a.calculateFactorContribution(ctx, period, factor)
