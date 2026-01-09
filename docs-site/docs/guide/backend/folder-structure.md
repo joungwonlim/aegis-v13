@@ -159,10 +159,13 @@ backend/
 │       └── middleware/
 │
 ├── pkg/                      # ⭐ 공용 패키지 SSOT
-│   ├── config/               # 환경변수
-│   ├── database/             # DB 연결
-│   ├── logger/               # 로깅
-│   └── httputil/             # HTTP 유틸
+│   ├── config/               # 환경변수 (SSOT)
+│   ├── database/             # DB 연결 (SSOT)
+│   ├── logger/               # 로깅 (SSOT)
+│   └── httputil/             # HTTP 클라이언트 (SSOT)
+│       ├── client.go         # HTTP Client 생성
+│       ├── retry.go          # 재시도 로직
+│       └── client_test.go    # 테스트
 │
 ├── migrations/               # DB 마이그레이션
 │
@@ -336,6 +339,78 @@ PrintJobCompletion(jobID, duration)
 - **가독성**: 명확한 구분자와 진행 카운터 [x/y]
 - **유지보수성**: 포맷 변경 시 `format.go`만 수정
 - **확장성**: 새 커맨드 추가 시 재사용
+
+---
+
+## HTTP 클라이언트 (pkg/httputil)
+
+모든 HTTP 요청은 **pkg/httputil**을 통해서만 수행합니다.
+
+### SSOT 원칙
+
+```go
+// ❌ 금지: 직접 http.Client 생성
+client := &http.Client{Timeout: 10 * time.Second}
+resp, _ := client.Get(url)
+
+// ✅ 허용: httputil 사용
+client := httputil.New(cfg)
+resp, _ := client.Get(ctx, url)
+```
+
+### 주요 기능
+
+| 기능 | 설명 |
+|------|------|
+| **타임아웃** | 요청별/전체 타임아웃 설정 |
+| **재시도** | 실패 시 자동 재시도 (지수 백오프) |
+| **로깅** | 요청/응답 자동 로깅 |
+| **컨텍스트** | context.Context 지원 |
+| **Rate Limiting** | API 호출 제한 (선택적) |
+
+### 사용 예시
+
+```go
+// 1. Client 생성
+client := httputil.New(cfg)
+
+// 2. GET 요청
+resp, err := client.Get(ctx, "https://api.example.com/data")
+if err != nil {
+    return err
+}
+defer resp.Body.Close()
+
+// 3. POST 요청 (JSON)
+data := map[string]interface{}{"key": "value"}
+resp, err := client.PostJSON(ctx, url, data)
+
+// 4. 재시도 설정
+client.WithRetry(3, 1*time.Second)
+```
+
+### 재시도 전략
+
+```go
+// 지수 백오프 (Exponential Backoff)
+// 1st retry: 1s
+// 2nd retry: 2s
+// 3rd retry: 4s
+// Max: 3 retries
+
+client := httputil.NewWithRetry(cfg, httputil.RetryConfig{
+    MaxRetries: 3,
+    InitialDelay: 1 * time.Second,
+    MaxDelay: 10 * time.Second,
+})
+```
+
+### 혜택
+
+- **SSOT**: HTTP Client 생성은 한 곳에서만
+- **일관성**: 모든 외부 API 호출이 동일한 방식
+- **관측성**: 자동 로깅으로 디버깅 쉬움
+- **안정성**: 재시도 로직으로 일시적 오류 대응
 
 ---
 
