@@ -6,6 +6,15 @@ Aegis v13 데이터베이스 마이그레이션 파일
 
 ## 실행 순서
 
+### 초기 설정 (최초 1회만)
+
+```bash
+# 0. 데이터베이스 초기화 (postgres DB에서 실행, superuser 권한 필요)
+psql -U wonny -d postgres -f 000_init_database.sql
+```
+
+### 마이그레이션 실행
+
 ```bash
 # PostgreSQL 접속 (aegis_v13 사용자)
 PGPASSWORD=aegis_v13_won psql -U aegis_v13 -d aegis_v13
@@ -38,10 +47,20 @@ PGPASSWORD=aegis_v13_won psql -U aegis_v13 -d aegis_v13
 
 ---
 
+### 권한 검증
+
+```bash
+# 모든 마이그레이션 완료 후 권한 검증
+PGPASSWORD=aegis_v13_won psql -U aegis_v13 -d aegis_v13 -f verify_permissions.sql
+```
+
+---
+
 ## 파일 설명
 
 | 파일 | 단계 | 설명 |
 |------|------|------|
+| 000_init_database.sql | Phase 0 | 데이터베이스 초기화 (최초 1회) |
 | 001_create_schemas.sql | Phase 1 | 6개 스키마 생성 |
 | 002_create_data_tables.sql | Phase 2 | data 스키마 테이블 (8개) |
 | 003_migrate_from_v10.sql | Phase 2 | v10 데이터 마이그레이션 |
@@ -54,6 +73,7 @@ PGPASSWORD=aegis_v13_won psql -U aegis_v13 -d aegis_v13
 | 010_create_audit_tables.sql | Phase 4 | audit 스키마 테이블 (4개) |
 | 011_grant_permissions.sql | Phase 5 | aegis_v13 사용자 권한 부여 |
 | 012_change_ownership.sql | Phase 5 | 스키마/테이블 소유자 변경 |
+| verify_permissions.sql | 검증 | 권한 및 데이터 검증 스크립트 |
 
 ---
 
