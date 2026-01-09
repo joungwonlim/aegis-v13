@@ -1,4 +1,4 @@
-package repos
+package s2_signals
 
 import (
 	"context"

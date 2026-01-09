@@ -19,7 +19,7 @@ Universe에 포함된 종목들의 **팩터/이벤트 시그널**을 계산
 ## 폴더 구조
 
 ```
-internal/signals/
+internal/s2_signals/
 ├── builder.go      # SignalBuilder 구현 (조합)
 ├── momentum.go     # 모멘텀 시그널
 ├── technical.go    # 기술적 시그널 (RSI, MACD)
@@ -45,49 +45,42 @@ type SignalBuilder interface {
 ### 구현
 
 ```go
-// internal/signals/builder.go
+// internal/s2_signals/builder.go
 
-type signalBuilder struct {
-    momentum  MomentumCalculator
-    technical TechnicalCalculator
-    value     ValueCalculator
-    quality   QualityCalculator
-    flow      FlowCalculator      // 수급 ⭐
-    event     EventCalculator
-    db        *pgxpool.Pool
+type Builder struct {
+    momentum       *MomentumCalculator
+    technical      *TechnicalCalculator
+    value          *ValueCalculator
+    quality        *QualityCalculator
+    flow           *FlowCalculator      // 수급 ⭐
+    event          *EventCalculator
+    priceRepo      contracts.PriceRepository
+    flowRepo       contracts.InvestorFlowRepository
+    financialRepo  contracts.FinancialRepository
+    disclosureRepo contracts.DisclosureRepository
+    logger         *logger.Logger
 }
 
-func (b *signalBuilder) Build(ctx context.Context, universe *contracts.Universe) (*contracts.SignalSet, error) {
+func (b *Builder) Build(ctx context.Context, universe *contracts.Universe, date time.Time) (*contracts.SignalSet, error) {
     signalSet := &contracts.SignalSet{
-        Date:    universe.Date,
+        Date:    date,
         Signals: make(map[string]*contracts.StockSignals),
     }
 
     for _, code := range universe.Stocks {
-        signal := &contracts.StockSignals{
-            Code: code,
+        signals, err := b.calculateStockSignals(ctx, code, date)
+        if err != nil {
+            b.logger.Warn("Failed to calculate signals", "code", code)
+            continue
         }
 
-        // 각 시그널 계산
-        signal.Momentum = b.momentum.Calculate(ctx, code)
-        signal.Technical = b.technical.Calculate(ctx, code)
-        signal.Value = b.value.Calculate(ctx, code)
-        signal.Quality = b.quality.Calculate(ctx, code)
-        signal.Flow = b.flow.Calculate(ctx, code)  // 수급 ⭐
-
-        // 이벤트 시그널
-        signal.Events = b.event.GetEvents(ctx, code)
-        signal.Event = b.event.CalculateScore(signal.Events)
-
-        // 상세 데이터
-        signal.Details = b.buildDetails(ctx, code)
-
-        signal.UpdatedAt = time.Now()
-        signalSet.Signals[code] = signal
+        signalSet.Signals[code] = signals
     }
 
     return signalSet, nil
 }
+
+// 모든 시그널은 -1.0 ~ 1.0 범위로 정규화됨
 ```
 
 ---
@@ -95,27 +88,32 @@ func (b *signalBuilder) Build(ctx context.Context, universe *contracts.Universe)
 ## Momentum Signal
 
 ```go
-// internal/signals/momentum.go
+// internal/s2_signals/momentum.go
 
-type MomentumCalculator interface {
-    Calculate(ctx context.Context, code string) float64
+type MomentumCalculator struct {
+    logger *logger.Logger
 }
 
-type momentumCalculator struct {
-    db *pgxpool.Pool
-}
-
-func (c *momentumCalculator) Calculate(ctx context.Context, code string) float64 {
+func (c *MomentumCalculator) Calculate(ctx context.Context, code string, prices []PricePoint) (float64, contracts.SignalDetails, error) {
     // 1. 수익률 계산
-    ret1m := c.getReturn(ctx, code, 20)   // 1개월
-    ret3m := c.getReturn(ctx, code, 60)   // 3개월
-    ret6m := c.getReturn(ctx, code, 120)  // 6개월
+    return1M := c.calculateReturn(prices, 20)   // 1개월 (20 거래일)
+    return3M := c.calculateReturn(prices, 60)   // 3개월 (60 거래일)
+    volumeRate := c.calculateVolumeGrowth(prices, 20)
 
-    // 2. 가중 평균 (최근 비중 높게)
-    score := ret1m*0.5 + ret3m*0.3 + ret6m*0.2
+    // 2. 가중 평균
+    // Return1M: 40%, Return3M: 40%, VolumeRate: 20%
+    score := return1M*0.4 + return3M*0.4 + volumeRate*0.2
 
-    // 3. Z-score 정규화 (-3 ~ +3 범위)
-    return c.normalize(score)
+    // 3. tanh 정규화 (-1.0 ~ 1.0 범위)
+    normalizedScore := math.Tanh(score * 2)
+
+    details := contracts.SignalDetails{
+        Return1M:   return1M,
+        Return3M:   return3M,
+        VolumeRate: volumeRate,
+    }
+
+    return normalizedScore, details, nil
 }
 ```
 
@@ -124,26 +122,38 @@ func (c *momentumCalculator) Calculate(ctx context.Context, code string) float64
 ## Value Signal
 
 ```go
-// internal/signals/value.go
+// internal/s2_signals/value.go
 
-type ValueCalculator interface {
-    Calculate(ctx context.Context, code string) float64
+type ValueCalculator struct {
+    logger *logger.Logger
 }
 
-func (c *valueCalculator) Calculate(ctx context.Context, code string) float64 {
-    fundamental := c.getFundamental(ctx, code)
+func (c *ValueCalculator) Calculate(ctx context.Context, code string, metrics ValueMetrics) (float64, contracts.SignalDetails, error) {
+    // PER 점수 (낮을수록 좋음)
+    // 15 = 중립(0), 5 = 저평가(1.0), 25 = 고평가(-1.0)
+    perScore := (15 - metrics.PER) / 15
 
-    // PER 점수 (낮을수록 좋음, 역수)
-    perScore := c.invertAndNormalize(fundamental.PER)
-
-    // PBR 점수 (낮을수록 좋음, 역수)
-    pbrScore := c.invertAndNormalize(fundamental.PBR)
+    // PBR 점수 (낮을수록 좋음)
+    // 1.5 = 중립(0), 0.5 = 저평가(1.0), 2.5 = 고평가(-1.0)
+    pbrScore := (1.5 - metrics.PBR) / 1.5
 
     // PSR 점수
-    psrScore := c.invertAndNormalize(fundamental.PSR)
+    // 2.0 = 중립(0), 0.5 = 저평가(1.0), 4.0 = 고평가(-1.0)
+    psrScore := (2.0 - metrics.PSR) / 2.0
 
-    // 가중 평균
-    return perScore*0.4 + pbrScore*0.4 + psrScore*0.2
+    // 가중 평균: PER 50%, PBR 30%, PSR 20%
+    score := perScore*0.5 + pbrScore*0.3 + psrScore*0.2
+
+    // tanh로 부드럽게 변환
+    score = math.Tanh(score * 1.5)
+
+    details := contracts.SignalDetails{
+        PER: metrics.PER,
+        PBR: metrics.PBR,
+        PSR: metrics.PSR,
+    }
+
+    return score, details, nil
 }
 ```
 
@@ -152,48 +162,52 @@ func (c *valueCalculator) Calculate(ctx context.Context, code string) float64 {
 ## Flow Signal (수급)
 
 ```go
-// internal/signals/flow.go
+// internal/s2_signals/flow.go
 
-type FlowCalculator interface {
-    Calculate(ctx context.Context, code string) float64
+type FlowCalculator struct {
+    logger *logger.Logger
 }
 
-type flowCalculator struct {
-    db *pgxpool.Pool
+type FlowData struct {
+    Date          string
+    ForeignNet    int64  // 외국인 순매수
+    InstNet       int64  // 기관 순매수
+    IndividualNet int64  // 개인 순매수
 }
 
-func (c *flowCalculator) Calculate(ctx context.Context, code string) float64 {
-    // 1. 외국인/기관 순매수 데이터 조회
-    flow := c.getInvestorFlow(ctx, code)
+func (c *FlowCalculator) Calculate(ctx context.Context, code string, flowData []FlowData) (float64, contracts.SignalDetails, error) {
+    if len(flowData) < 20 {
+        return 0.0, contracts.SignalDetails{}, nil
+    }
 
-    // 2. 5일/20일 누적 순매수
-    foreignScore := c.normalizeFlow(flow.ForeignNet5D, flow.ForeignNet20D)
-    instScore := c.normalizeFlow(flow.InstNet5D, flow.InstNet20D)
+    // 1. 5일/20일 누적 순매수 계산
+    foreignNet5D := c.sumNetBuying(flowData[:5], "foreign")
+    foreignNet20D := c.sumNetBuying(flowData[:20], "foreign")
+    instNet5D := c.sumNetBuying(flowData[:5], "inst")
+    instNet20D := c.sumNetBuying(flowData[:20], "inst")
 
-    // 3. 가중 합산 (외국인 60%, 기관 40%)
-    return foreignScore*0.6 + instScore*0.4
-}
+    // 2. 정규화 (tanh 사용)
+    // 10억 = 1.0, 50억(20일) = 1.0
+    foreignScore5D := math.Tanh(float64(foreignNet5D) / 10_000_000_000)
+    foreignScore20D := math.Tanh(float64(foreignNet20D) / 50_000_000_000)
+    instScore5D := math.Tanh(float64(instNet5D) / 10_000_000_000)
+    instScore20D := math.Tanh(float64(instNet20D) / 50_000_000_000)
 
-func (c *flowCalculator) getInvestorFlow(ctx context.Context, code string) *FlowData {
-    query := `
-        SELECT
-            SUM(CASE WHEN date > NOW() - INTERVAL '5 days' THEN foreign_net ELSE 0 END) as foreign_5d,
-            SUM(CASE WHEN date > NOW() - INTERVAL '20 days' THEN foreign_net ELSE 0 END) as foreign_20d,
-            SUM(CASE WHEN date > NOW() - INTERVAL '5 days' THEN inst_net ELSE 0 END) as inst_5d,
-            SUM(CASE WHEN date > NOW() - INTERVAL '20 days' THEN inst_net ELSE 0 END) as inst_20d
-        FROM data.investor_flow
-        WHERE stock_code = $1 AND date > NOW() - INTERVAL '20 days'
-    `
-    // ...
-}
+    // 3. 가중 평균
+    // 외국인: 60%, 기관: 40%
+    // 단기(5D): 70%, 장기(20D): 30%
+    foreignScore := foreignScore5D*0.7 + foreignScore20D*0.3
+    instScore := instScore5D*0.7 + instScore20D*0.3
+    score := foreignScore*0.6 + instScore*0.4
 
-func (c *flowCalculator) normalizeFlow(short, long int64) float64 {
-    // 단기 추세 (5일)와 장기 추세 (20일) 조합
-    // Z-score 정규화 후 -1.0 ~ 1.0 범위로 변환
-    shortScore := c.zScore(short)
-    longScore := c.zScore(long)
+    details := contracts.SignalDetails{
+        ForeignNet5D:  foreignNet5D,
+        ForeignNet20D: foreignNet20D,
+        InstNet5D:     instNet5D,
+        InstNet20D:    instNet20D,
+    }
 
-    return shortScore*0.7 + longScore*0.3
+    return score, details, nil
 }
 ```
 
@@ -211,59 +225,64 @@ func (c *flowCalculator) normalizeFlow(short, long int64) float64 {
 ## Event Signal
 
 ```go
-// internal/signals/event.go
+// internal/s2_signals/event.go
 
-type EventCalculator interface {
-    GetEvents(ctx context.Context, code string) []contracts.EventSignal
-    CalculateScore(events []contracts.EventSignal) float64
+type EventCalculator struct {
+    logger *logger.Logger
 }
 
-func (c *eventCalculator) GetEvents(ctx context.Context, code string) []contracts.EventSignal {
-    events := make([]contracts.EventSignal, 0)
-
-    // 1. 공시 이벤트
-    disclosures := c.getDisclosures(ctx, code, 30) // 최근 30일
-    for _, d := range disclosures {
-        events = append(events, contracts.EventSignal{
-            Type:      d.Type,
-            Score:     c.scoreDisclosure(d),
-            Source:    "DART",
-            Timestamp: d.Date,
-        })
-    }
-
-    // 2. 뉴스 이벤트
-    news := c.getNews(ctx, code, 7) // 최근 7일
-    for _, n := range news {
-        events = append(events, contracts.EventSignal{
-            Type:      "NEWS",
-            Score:     n.Sentiment,
-            Source:    n.Source,
-            Timestamp: n.Date,
-        })
-    }
-
-    return events
-}
-
-func (c *eventCalculator) CalculateScore(events []contracts.EventSignal) float64 {
+func (c *EventCalculator) Calculate(ctx context.Context, code string, events []contracts.EventSignal, currentDate time.Time) (float64, contracts.SignalDetails, error) {
     if len(events) == 0 {
-        return 0
+        return 0.0, contracts.SignalDetails{}, nil
     }
 
-    var totalScore float64
+    score := c.calculateScore(events, currentDate)
+    return score, contracts.SignalDetails{}, nil
+}
+
+func (c *EventCalculator) calculateScore(events []contracts.EventSignal, currentDate time.Time) float64 {
+    var weightedSum float64
     var totalWeight float64
 
-    for _, e := range events {
-        // 시간 감쇠 (최근 이벤트 가중치 높음)
-        daysSince := time.Since(e.Timestamp).Hours() / 24
-        weight := math.Exp(-daysSince / 7) // 7일 반감기
+    for _, event := range events {
+        // 이벤트 점수 (이미 -1.0 ~ 1.0)
+        score := event.Score
 
-        totalScore += e.Score * weight
-        totalWeight += weight
+        // 시간 감쇠 적용
+        daysSince := currentDate.Sub(event.Timestamp).Hours() / 24
+        timeWeight := c.calculateTimeWeight(daysSince)
+
+        weightedSum += score * timeWeight
+        totalWeight += timeWeight
     }
 
-    return totalScore / totalWeight
+    if totalWeight == 0 {
+        return 0.0
+    }
+
+    finalScore := weightedSum / totalWeight
+
+    // Clamp to -1.0 ~ 1.0
+    if finalScore > 1.0 {
+        finalScore = 1.0
+    } else if finalScore < -1.0 {
+        finalScore = -1.0
+    }
+
+    return finalScore
+}
+
+// calculateTimeWeight: 지수 감쇠
+// 7일: ~100%, 30일: ~50%, 90일: ~25%
+func (c *EventCalculator) calculateTimeWeight(daysSince float64) float64 {
+    const decayRate = 0.023
+    weight := math.Exp(-decayRate * daysSince)
+
+    if weight < 0.1 {
+        weight = 0.1  // 최소 가중치
+    }
+
+    return weight
 }
 ```
 
@@ -280,6 +299,54 @@ func (c *eventCalculator) CalculateScore(events []contracts.EventSignal) float64
 | 유상증자 | -1.0 | 부정 |
 | CB/BW 발행 | -0.5 | 약한 부정 |
 | 횡령/배임 | -2.0 | 강한 부정 |
+
+---
+
+## Signal Repository
+
+```go
+// internal/s2_signals/repository.go
+
+type SignalRepository struct {
+    pool *pgxpool.Pool
+}
+
+func (r *SignalRepository) Save(ctx context.Context, signalSet *contracts.SignalSet) error {
+    tx, err := r.pool.Begin(ctx)
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback(ctx)
+
+    for code, signals := range signalSet.Signals {
+        // 1. factor_scores 저장
+        if err := r.saveFactorScores(ctx, tx, code, signalSet.Date, signals); err != nil {
+            return err
+        }
+
+        // 2. flow_details 저장
+        // 3. technical_details 저장
+        if err := r.saveSignalDetails(ctx, tx, code, signalSet.Date, signals); err != nil {
+            return err
+        }
+    }
+
+    return tx.Commit(ctx)
+}
+
+func (r *SignalRepository) GetByDate(ctx context.Context, date time.Time) (*contracts.SignalSet, error) {
+    // factor_scores에서 모든 종목의 시그널 조회
+    // flow_details, technical_details 조인하여 상세 정보 로드
+}
+```
+
+**Total Score 계산 (가중 평균):**
+- Flow: 25%
+- Momentum: 20%
+- Technical: 20%
+- Value: 15%
+- Quality: 15%
+- Event: 5%
 
 ---
 
