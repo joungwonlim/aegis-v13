@@ -99,6 +99,7 @@ backend/
 │       ├── main.go           # 메인 엔트리포인트
 │       └── commands/         # 서브커맨드
 │           ├── root.go       # Root command
+│           ├── format.go     # 공통 포맷팅 유틸리티 (SSOT)
 │           ├── api.go        # API 서버 (go run ./cmd/quant api)
 │           ├── fetcher.go    # 데이터 수집 (go run ./cmd/quant fetcher)
 │           ├── worker.go     # 백그라운드 워커 (go run ./cmd/quant worker start)
@@ -268,6 +269,73 @@ make build
 2. **확장성**: 새 커맨드 추가 쉬움 (`commands/new.go`)
 3. **플래그 공유**: 공통 플래그 (`--env`, `--config`) 일관성
 4. **빌드 단순화**: `make build` 하나로 전체 빌드
+
+---
+
+## 공통 포맷팅 (format.go)
+
+모든 커맨드가 **동일한 출력 형식**을 사용하도록 통일된 포맷팅 유틸리티를 제공합니다.
+
+### Job 실행 포맷
+
+```
+═══════════════════════════════════════════════════════════
+  Fetch Ranking Data
+───────────────────────────────────────────────────────────
+  Job ID    : #653
+  Period    : 2025-12-09 ~ 2026-01-09
+  Symbols   : all
+───────────────────────────────────────────────────────────
+[Ranking] Manual collection triggered at 21:57:45
+[Ranking] Fetched trading/KOSPI: 100 items [1/8]
+[Ranking] Fetched trading/KOSDAQ: 100 items [2/8]
+[Ranking] Fetched quantHigh/KOSPI: 100 items [3/8]
+...
+✅ Job #653 completed in 1.62s (100%)
+```
+
+### 주요 함수
+
+| 함수 | 용도 |
+|------|------|
+| `PrintJobHeader(meta)` | Job 실행 헤더 (ID, Period, Symbols) |
+| `PrintProgress(tag, msg, current, total)` | 진행 상황 표시 [x/y] |
+| `PrintJobCompletion(jobID, duration)` | 완료 메시지 |
+| `PrintList(items)` | 항목 리스트 (• bullet) |
+| `PrintNumberedList(items)` | 번호 리스트 (1., 2., ...) |
+| `PrintTableHeader/Row(...)` | 테이블 형식 출력 |
+| `PrintSeparator()` | 구분선 (─) |
+| `PrintSuccess/Error/Warning(msg)` | 상태 메시지 |
+
+### 사용 예시
+
+```go
+// Worker에서 사용
+meta := JobMetadata{
+    JobID:     653,
+    JobType:   "Fetch Ranking Data",
+    Tag:       "Ranking",
+    Period:    GetCurrentPeriod(),
+    Symbols:   "all",
+}
+PrintJobHeader(meta)
+
+// 진행 상황 표시
+steps := []string{"Fetch KOSPI", "Fetch KOSDAQ", ...}
+for i, step := range steps {
+    PrintProgress("Ranking", step, i+1, len(steps))
+}
+
+// 완료
+PrintJobCompletion(jobID, duration)
+```
+
+### 혜택
+
+- **일관성**: 모든 커맨드가 동일한 출력 형식
+- **가독성**: 명확한 구분자와 진행 카운터 [x/y]
+- **유지보수성**: 포맷 변경 시 `format.go`만 수정
+- **확장성**: 새 커맨드 추가 시 재사용
 
 ---
 
