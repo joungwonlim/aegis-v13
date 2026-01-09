@@ -60,7 +60,7 @@ func init() {
 }
 
 func runAPIServer(cmd *cobra.Command, args []string) error {
-	fmt.Println("=== Aegis v13 API Server ===\n")
+	fmt.Println("=== Aegis v13 API Server ===")
 
 	// 1. Load config
 	cfg, err := config.Load()

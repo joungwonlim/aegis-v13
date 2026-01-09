@@ -95,7 +95,7 @@ func init() {
 }
 
 func runScheduler(cmd *cobra.Command, args []string) error {
-	fmt.Println("=== Aegis v13 Scheduler ===\n")
+	fmt.Println("=== Aegis v13 Scheduler ===")
 
 	// Initialize dependencies
 	sched, err := initScheduler()

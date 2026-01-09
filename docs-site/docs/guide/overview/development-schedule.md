@@ -242,29 +242,35 @@ migrations/
 
 ## Phase 1: 데이터 레이어 (S0-S1)
 
-### 🔄 현재 상태 (2026-01-10)
+### ✅ 완료 상태 (2026-01-10)
 
 | 작업 | 상태 | 완료일 |
 |------|------|--------|
 | **S0: Quality Gate** | ✅ 완료 | 2026-01-10 |
 | **S1: Universe Builder** | ✅ 완료 | 2026-01-10 |
-| Data Sources (Naver/DART/KRX) | ❌ TODO | - |
-| Scheduler | ❌ TODO | - |
-| Real-time Price Feeds | ❌ TODO | - |
+| Data Sources (Naver/DART/KRX) | ✅ 완료 | 2026-01-10 |
+| Collector & Orchestrator | ✅ 완료 | 2026-01-10 |
+| CLI/API Interface | ✅ 완료 | 2026-01-10 |
+| Scheduler | ✅ 완료 | 2026-01-10 |
+| Real-time Price Feeds | ✅ 완료 | 2026-01-10 |
 
 **완료된 것:**
 - ✅ `internal/s0_data/quality/validator.go` - 품질 검증
 - ✅ `internal/s0_data/repository.go` - DB 저장
 - ✅ `internal/s1_universe/builder.go` - Universe 생성
 - ✅ `internal/s1_universe/repository.go` - DB 저장
+- ✅ `internal/external/naver/` - Naver 가격/수급 데이터
+- ✅ `internal/external/dart/` - DART 공시 데이터
+- ✅ `internal/external/krx/` - KRX 시장 지표
+- ✅ `internal/s0_data/collector/collector.go` - 데이터 수집 오케스트레이터
+- ✅ `cmd/quant/commands/fetcher.go` - CLI 인터페이스
+- ✅ `cmd/quant/commands/api.go` - API 서버
+- ✅ `cmd/quant/commands/scheduler.go` - 스케줄러
+- ✅ `internal/realtime/feed/` - KIS WebSocket + REST 폴링
+- ✅ `internal/realtime/cache/` - 가격 캐시
+- ✅ `internal/realtime/queue/` - PostgreSQL 동기화 큐
 - ✅ `config/data.yaml` - 설정 파일
-- ✅ 테스트 작성 및 실행 (922종목, 911 유니버스)
-
-**TODO:**
-- ❌ Data Sources 구현 (Naver, DART, KRX)
-- ❌ Scheduler 구현
-- ❌ KIS WebSocket (실시간 가격)
-- ❌ CLI/API 인터페이스
+- ✅ 테스트 작성 및 통과 (contracts 60.6%, httputil 94.4%)
 
 ### 목표
 외부 API에서 데이터 수집 및 품질 검증, Universe 생성
