@@ -724,6 +724,24 @@ WS   /ws/prices                   # 실시간 가격 스트림
 
 ## Phase 2: 시그널 레이어 (S2)
 
+### 🔄 현재 상태 (2026-01-10)
+
+| 작업 | 상태 | 완료일 |
+|------|------|--------|
+| **S2: Signal Builder** | ✅ 완료 | 2026-01-10 |
+| 6가지 시그널 계산기 | ✅ 완료 | 2026-01-10 |
+| Signal Repository | ✅ 완료 | 2026-01-10 |
+
+**완료된 것:**
+- ✅ `internal/s2_signals/builder.go` - SignalBuilder
+- ✅ `internal/s2_signals/momentum.go` - 모멘텀 시그널
+- ✅ `internal/s2_signals/technical.go` - 기술적 시그널
+- ✅ `internal/s2_signals/value.go` - 가치 시그널
+- ✅ `internal/s2_signals/quality.go` - 퀄리티 시그널
+- ✅ `internal/s2_signals/flow.go` - 수급 시그널 ⭐
+- ✅ `internal/s2_signals/event.go` - 이벤트 시그널
+- ✅ `internal/s2_signals/repository.go` - DB 저장
+
 ### 목표
 6가지 시그널 생성 (Momentum, Technical, Value, Quality, Flow, Event)
 
@@ -806,6 +824,20 @@ internal/api/handlers/
 
 ## Phase 3: 선택 레이어 (S3-S4)
 
+### 🔄 현재 상태 (2026-01-10)
+
+| 작업 | 상태 | 완료일 |
+|------|------|--------|
+| **S3: Screener** | ✅ 완료 | 2026-01-10 |
+| **S4: Ranker** | ✅ 완료 | 2026-01-10 |
+| Selection Repository | ✅ 완료 | 2026-01-10 |
+
+**완료된 것:**
+- ✅ `internal/selection/screener.go` - Hard Cut 필터링
+- ✅ `internal/selection/ranker.go` - 종합 점수 랭킹
+- ✅ `internal/selection/repository.go` - DB 저장
+- ✅ 가중치 설정: Flow 25%, Momentum 20%, Technical 20%, Value 15%, Quality 15%, Event 5%
+
 ### 목표
 Screening (Hard Cut) + Ranking
 
@@ -856,6 +888,21 @@ event: 0.05
 
 ## Phase 4: 포트폴리오 (S5)
 
+### 🔄 현재 상태 (2026-01-10)
+
+| 작업 | 상태 | 완료일 |
+|------|------|--------|
+| **S5: Portfolio Constructor** | ✅ 완료 | 2026-01-10 |
+| Constraints | ✅ 완료 | 2026-01-10 |
+| Portfolio Repository | ✅ 완료 | 2026-01-10 |
+
+**완료된 것:**
+- ✅ `internal/portfolio/constructor.go` - 포트폴리오 구성
+- ✅ `internal/portfolio/constraints.go` - 제약조건 검증
+- ✅ `internal/portfolio/repository.go` - DB 저장
+- ✅ 3가지 비중 모드: equal, score_based, risk_parity(TODO)
+- ✅ 기본값: 최대 20종목, 최대 15%, 최소 3%, 5% 현금
+
 ### 목표
 목표 포트폴리오 생성 및 리밸런싱
 
@@ -886,6 +933,22 @@ internal/portfolio/
 
 ## Phase 5: 실행 레이어 (S6)
 
+### 🔄 현재 상태 (2026-01-10)
+
+| 작업 | 상태 | 완료일 |
+|------|------|--------|
+| **S6: Execution Planner** | ✅ 완료 | 2026-01-10 |
+| Broker Interface | ✅ 완료 | 2026-01-10 |
+| Monitor | ✅ 완료 | 2026-01-10 |
+| Execution Repository | ✅ 완료 | 2026-01-10 |
+
+**완료된 것:**
+- ✅ `internal/execution/planner.go` - 주문 계획 (슬리피지, 분할)
+- ✅ `internal/execution/broker.go` - Broker 인터페이스 + MockBroker
+- ✅ `internal/execution/monitor.go` - 체결 모니터링
+- ✅ `internal/execution/repository.go` - DB 저장
+- ✅ 기본값: 지정가, 0.1% 슬리피지, 5천만원 최대 주문
+
 ### 목표
 주문 생성 및 실행
 
@@ -915,6 +978,22 @@ internal/execution/
 ---
 
 ## Phase 6: 감사 레이어 (S7)
+
+### 🔄 현재 상태 (2026-01-10)
+
+| 작업 | 상태 | 완료일 |
+|------|------|--------|
+| **S7: Performance Analyzer** | ✅ 완료 | 2026-01-10 |
+| Attribution | ✅ 완료 | 2026-01-10 |
+| Snapshot | ✅ 완료 | 2026-01-10 |
+| Audit Repository | ✅ 완료 | 2026-01-10 |
+
+**완료된 것:**
+- ✅ `internal/audit/performance.go` - 성과 분석 (Sharpe, Sortino, MDD)
+- ✅ `internal/audit/attribution.go` - 팩터 기여도 분석
+- ✅ `internal/audit/snapshot.go` - 일별 스냅샷, equity curve
+- ✅ `internal/audit/repository.go` - DB 저장
+- ✅ 6개 팩터 기여도 분석 (Flow 포함)
 
 ### 목표
 성과 분석 및 시그널 기여도 분석
