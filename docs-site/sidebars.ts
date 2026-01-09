@@ -26,6 +26,14 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Strategy',
+      collapsed: false,
+      items: [
+        'guide/strategy/stock-selection',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Backend',
       collapsed: true,
       items: [
