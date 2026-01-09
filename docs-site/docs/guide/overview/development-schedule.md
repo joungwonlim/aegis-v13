@@ -85,8 +85,14 @@ Go BFF 기본 구조 및 SSOT 레이어 구축
 ```bash
 backend/
 ├── cmd/
-│   ├── api/main.go        # 웹 서버 (API)
-│   └── fetcher/main.go    # CLI 도구 (데이터 수집)
+│   └── quant/             # 통합 CLI (Cobra 기반)
+│       ├── main.go
+│       └── commands/
+│           ├── root.go
+│           ├── fetcher.go
+│           ├── worker.go
+│           ├── status.go
+│           └── test_*.go
 ├── go.mod
 ├── go.sum
 ├── Makefile
@@ -94,33 +100,27 @@ backend/
 ```
 
 **산출물**:
-- [ ] `go.mod` (Go 1.21+)
-- [ ] `Makefile` (build, run, test, lint)
-- [ ] `.env.example`
-- [ ] `cmd/api/main.go` - 웹 서버
-- [ ] `cmd/fetcher/main.go` - CLI 도구
+- [x] `go.mod` (Go 1.21+)
+- [x] `Makefile` (build, run, test, lint)
+- [x] `.env.example`
+- [x] `cmd/quant/main.go` - 통합 CLI 진입점
+- [x] `cmd/quant/commands/` - Cobra 서브커맨드
 
 **Makefile 예시**:
 ```makefile
 # 빌드
-build-api:
-    go build -o bin/api ./cmd/api
-
-build-fetcher:
-    go build -o bin/fetcher ./cmd/fetcher
-
-build: build-api build-fetcher
-
-# 실행
-run-api:
-    go run ./cmd/api
-
-run-fetcher:
-    go run ./cmd/fetcher collect all
+build:
+    go build -o bin/quant ./cmd/quant
 
 # 테스트
 test:
-    go test -v ./...
+    go test -v -race ./...
+
+test-db:
+    go run ./cmd/quant test-db
+
+test-logger:
+    go run ./cmd/quant test-logger
 
 lint:
     golangci-lint run
@@ -128,18 +128,20 @@ lint:
 
 **실행 방식**:
 ```bash
-# CLI 실행 (직접 또는 cron)
-make run-fetcher                    # 또는
-go run ./cmd/fetcher collect all
-go run ./cmd/fetcher collect prices
-go run ./cmd/fetcher collect investor
+# 통합 CLI 사용법
+go run ./cmd/quant [command]
 
-# API 실행 (웹 서버)
-make run-api                        # 또는
-go run ./cmd/api
+# 데이터 수집 (fetcher 서브커맨드)
+go run ./cmd/quant fetcher collect all
+go run ./cmd/quant fetcher collect prices
+go run ./cmd/quant fetcher collect investor
 
-# 웹에서 데이터 수집 트리거
-POST /api/data/collect {"type": "all"}
+# API 서버 실행 (구현 예정)
+go run ./cmd/quant api
+
+# 테스트
+go run ./cmd/quant test-db
+go run ./cmd/quant test-logger
 ```
 
 **SSOT 체크**: N/A (기본 구조)
@@ -297,11 +299,11 @@ func (c *Collector) CollectAll(ctx context.Context) error { ... }
 func (c *Collector) CollectPrices(ctx context.Context) error { ... }
 func (c *Collector) CollectInvestor(ctx context.Context) error { ... }
 
-// cmd/fetcher/main.go - CLI에서 Collector 호출
+// cmd/quant/commands/fetcher.go - CLI에서 Collector 호출
 collector := data.NewCollector(...)
 collector.CollectAll(ctx)
 
-// internal/api/handlers/data.go - API에서 Collector 호출
+// cmd/quant/commands/api.go - API에서 Collector 호출 (구현 예정)
 collector := data.NewCollector(...)
 collector.CollectAll(ctx)
 ```
@@ -352,22 +354,29 @@ internal/data/
 
 #### 1.4 CLI & API 인터페이스
 
-**CLI 도구** (`cmd/fetcher/main.go`):
+**CLI 도구** (`cmd/quant/commands/fetcher.go`):
 ```bash
-# 전체 수집
-./fetcher collect all
+# 통합 CLI를 통한 데이터 수집
+go run ./cmd/quant fetcher collect all
 
 # 개별 수집
-./fetcher collect prices    # 가격 데이터
-./fetcher collect investor  # 수급 데이터
-./fetcher collect disclosure # 공시 데이터
+go run ./cmd/quant fetcher collect prices    # 가격 데이터
+go run ./cmd/quant fetcher collect investor  # 수급 데이터
+go run ./cmd/quant fetcher collect disclosure # 공시 데이터
+
+# 빌드 후 실행
+./bin/quant fetcher collect all
 
 # cron 스케줄 예시 (매일 오후 4시)
-0 16 * * * cd /path/to/backend && ./fetcher collect all
+0 16 * * * cd /path/to/backend && ./bin/quant fetcher collect all
 ```
 
-**API 엔드포인트** (`internal/api/handlers/data.go`):
+**API 엔드포인트** (구현 예정):
 ```bash
+# API 서버 실행
+go run ./cmd/quant api
+
+# 엔드포인트
 GET  /api/data/quality          # 품질 스냅샷 조회
 GET  /api/data/universe         # Universe 조회
 POST /api/data/collect          # 데이터 수집 트리거
@@ -375,8 +384,8 @@ POST /api/data/collect          # 데이터 수집 트리거
 ```
 
 **산출물**:
-- [ ] `cmd/fetcher/main.go` - CLI 도구 구현
-- [ ] `internal/api/handlers/data.go` - API 핸들러 구현
+- [x] `cmd/quant/commands/fetcher.go` - CLI fetcher 구현
+- [ ] `cmd/quant/commands/api.go` - API 서버 구현 (예정)
 - [ ] 둘 다 `internal/data/collector.go` 호출
 
 **SSOT 체크**:
