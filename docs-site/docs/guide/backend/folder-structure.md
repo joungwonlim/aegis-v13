@@ -101,6 +101,8 @@ backend/
 │           ├── root.go       # Root command
 │           ├── api.go        # API 서버 (go run ./cmd/quant api)
 │           ├── fetcher.go    # 데이터 수집 (go run ./cmd/quant fetcher)
+│           ├── worker.go     # 백그라운드 워커 (go run ./cmd/quant worker start)
+│           ├── status.go     # 큐 상태 모니터링 (go run ./cmd/quant status start)
 │           ├── test_db.go    # DB 테스트 (go run ./cmd/quant test-db)
 │           └── test_logger.go # Logger 테스트 (go run ./cmd/quant test-logger)
 │
@@ -221,7 +223,9 @@ make build
 | 커맨드 | 용도 | 예시 |
 |--------|------|------|
 | `api` | API 서버 실행 | `go run ./cmd/quant api --port 8080` |
-| `fetcher` | 데이터 수집 | `go run ./cmd/quant fetcher collect all` |
+| `fetcher` | 데이터 수집 (KIS, DART, Naver) | `go run ./cmd/quant fetcher collect all` |
+| `worker` | 백그라운드 워커 시작 | `go run ./cmd/quant worker start` |
+| `status` | 큐 상태 모니터링 | `go run ./cmd/quant status start` |
 | `test-db` | DB 연결 테스트 | `go run ./cmd/quant test-db` |
 | `test-logger` | Logger 테스트 | `go run ./cmd/quant test-logger` |
 
@@ -235,7 +239,16 @@ go run ./cmd/quant api --port 8080 --env production
 # 데이터 수집
 go run ./cmd/quant fetcher collect --source kis
 go run ./cmd/quant fetcher collect --source dart
+go run ./cmd/quant fetcher collect --source naver
 go run ./cmd/quant fetcher collect all
+
+# 백그라운드 워커 (큐 기반 작업 처리)
+go run ./cmd/quant worker start
+go run ./cmd/quant worker start --concurrency 5
+
+# 큐 상태 모니터링
+go run ./cmd/quant status start
+go run ./cmd/quant status start --refresh 2s
 
 # 테스트
 go run ./cmd/quant test-db
@@ -245,6 +258,8 @@ go run ./cmd/quant test-logger
 make build
 ./bin/quant api
 ./bin/quant fetcher collect all
+./bin/quant worker start
+./bin/quant status start
 ```
 
 ### 장점
