@@ -11,11 +11,13 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://aegis-v13.github.io',
-  baseUrl: '/',
+  url: 'https://joungwonlim.github.io',
+  baseUrl: '/aegis-v13/',
 
-  organizationName: 'aegis',
+  organizationName: 'joungwonlim',
   projectName: 'aegis-v13',
+  deploymentBranch: 'gh-pages',
+  trailingSlash: false,
 
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
@@ -62,7 +64,7 @@ const config: Config = {
           label: 'Guide',
         },
         {
-          href: 'https://github.com/aegis/aegis-v13',
+          href: 'https://github.com/joungwonlim/aegis-v13',
           label: 'GitHub',
           position: 'right',
         },
@@ -102,7 +104,7 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/aegis/aegis-v13',
+              href: 'https://github.com/joungwonlim/aegis-v13',
             },
           ],
         },
