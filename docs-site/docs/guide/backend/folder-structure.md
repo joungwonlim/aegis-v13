@@ -100,12 +100,14 @@ backend/
 │       └── commands/         # 서브커맨드
 │           ├── root.go       # Root command
 │           ├── format.go     # 공통 포맷팅 유틸리티 (SSOT)
-│           ├── api.go        # API 서버 (go run ./cmd/quant api)
-│           ├── fetcher.go    # 데이터 수집 (go run ./cmd/quant fetcher)
-│           ├── worker.go     # 백그라운드 워커 (go run ./cmd/quant worker start)
-│           ├── status.go     # 큐 상태 모니터링 (go run ./cmd/quant status start)
-│           ├── test_db.go    # DB 테스트 (go run ./cmd/quant test-db)
-│           └── test_logger.go # Logger 테스트 (go run ./cmd/quant test-logger)
+│           ├── api.go        # API 서버
+│           ├── fetcher.go    # 데이터 수집
+│           ├── worker.go     # 백그라운드 워커
+│           └── scheduler.go  # 스케줄러
+│
+├── config/
+│   └── strategy/
+│       └── korea_equity_v13.yaml  # ⭐ 전략 설정 SSOT
 │
 ├── internal/                  # 비공개 비즈니스 로직
 │   ├── contracts/            # ⭐ 타입/인터페이스 SSOT
@@ -116,61 +118,86 @@ backend/
 │   │   ├── portfolio.go      # TargetPortfolio (S5→S6)
 │   │   ├── order.go          # Order (S6→Broker)
 │   │   ├── audit.go          # PerformanceReport (S7)
-│   │   ├── interfaces.go     # 7단계 인터페이스
-│   │   ├── *_test.go         # 단위 테스트
-│   │   └── README.md         # Contracts 사용 가이드
+│   │   └── interfaces.go     # 7단계 인터페이스
 │   │
-│   ├── brain/                # 오케스트레이터 (로직 없음)
-│   │   └── orchestrator.go
+│   ├── brain/                # ⭐ 오케스트레이터
+│   │   └── orchestrator.go   # S0→S7 파이프라인 조율
 │   │
-│   ├── data/                 # S0-S1: 데이터 레이어
-│   │   ├── quality.go        # 품질 검증
-│   │   ├── universe.go       # 유니버스 생성
-│   │   └── repository.go     # DB 접근
+│   ├── s0_data/              # S0: 데이터 품질
+│   │   ├── quality/
+│   │   │   ├── validator.go  # 품질 검증
+│   │   │   └── validator_test.go
+│   │   ├── collector/
+│   │   │   └── collector.go  # 데이터 수집
+│   │   └── repository.go
 │   │
-│   ├── signals/              # S2: 시그널 레이어
-│   │   ├── momentum.go
-│   │   ├── technical.go
-│   │   ├── value.go
-│   │   ├── quality.go
-│   │   ├── flow.go           # 수급 시그널 ⭐
-│   │   ├── event.go
-│   │   └── builder.go        # SignalBuilder 구현
+│   ├── s1_universe/          # S1: 유니버스
+│   │   ├── builder.go        # 투자 가능 종목 추출
+│   │   ├── builder_test.go
+│   │   └── repository.go
 │   │
-│   ├── selection/            # S3-S4: 선택 레이어
-│   │   ├── screener.go       # 1차 필터링
-│   │   └── ranker.go         # 순위 산출
+│   ├── s2_signals/           # S2: 시그널 레이어
+│   │   ├── momentum.go       # 모멘텀 (1M, 3M, 거래량)
+│   │   ├── technical.go      # 기술적 (RSI, MACD, MA)
+│   │   ├── value.go          # 밸류 (PER, PBR, PSR)
+│   │   ├── quality.go        # 퀄리티 (ROE, 부채비율)
+│   │   ├── flow.go           # 수급 (외인/기관 순매수)
+│   │   ├── event.go          # 이벤트 (공시, 배당)
+│   │   ├── builder.go        # SignalBuilder 통합
+│   │   └── repository.go
 │   │
-│   ├── portfolio/            # S5: 포트폴리오 레이어
-│   │   ├── constructor.go
-│   │   └── rebalancer.go
+│   ├── selection/            # S3-S4: 스크리닝/랭킹
+│   │   ├── screener.go       # S3: 하드컷 필터링
+│   │   ├── ranker.go         # S4: 가중치 기반 랭킹
+│   │   └── repository.go
 │   │
-│   ├── execution/            # S6: 실행 레이어
-│   │   ├── planner.go
-│   │   └── broker.go         # KIS 연동
+│   ├── portfolio/            # S5: 포트폴리오 구성
+│   │   ├── constructor.go    # 포트폴리오 생성
+│   │   ├── constraints.go    # 제약조건 적용
+│   │   └── repository.go
 │   │
-│   ├── audit/                # S7: 감사 레이어
-│   │   ├── performance.go
-│   │   └── attribution.go
+│   ├── execution/            # S6: 주문 실행
+│   │   ├── planner.go        # 주문 계획
+│   │   ├── broker.go         # 브로커 연동
+│   │   ├── monitor.go        # 실행 모니터링
+│   │   └── repository.go
+│   │
+│   ├── audit/                # S7: 성과 분석
+│   │   ├── performance.go    # 수익률/리스크 분석
+│   │   ├── attribution.go    # 팩터별 기여도
+│   │   ├── snapshot.go       # 스냅샷 저장
+│   │   └── repository.go
+│   │
+│   ├── backtest/             # ⭐ 백테스트 프레임워크
+│   │   ├── engine.go         # 백테스트 엔진
+│   │   └── simulator.go      # 주문 시뮬레이션
+│   │
+│   ├── scheduler/            # 스케줄러
+│   │   ├── scheduler.go
+│   │   └── jobs/
+│   │
+│   ├── realtime/             # 실시간 데이터 (미완성)
+│   │   ├── broker/
+│   │   ├── cache/
+│   │   ├── feed/
+│   │   └── queue/
 │   │
 │   ├── external/             # ⭐ 외부 API SSOT
-│   │   ├── kis/
-│   │   ├── dart/
-│   │   └── naver/
+│   │   ├── dart/             # DART API (공시)
+│   │   ├── naver/            # Naver (시세/수급)
+│   │   └── krx/              # KRX (시장 데이터)
 │   │
-│   └── api/                  # HTTP 핸들러
-│       ├── router.go
-│       ├── handlers/
-│       └── middleware/
+│   ├── api/                  # HTTP 핸들러
+│   │   ├── router.go
+│   │   └── handlers/
+│   │
+│   └── data/                 # 데이터 유틸리티
 │
 ├── pkg/                      # ⭐ 공용 패키지 SSOT
 │   ├── config/               # 환경변수 (SSOT)
 │   ├── database/             # DB 연결 (SSOT)
 │   ├── logger/               # 로깅 (SSOT)
 │   └── httputil/             # HTTP 클라이언트 (SSOT)
-│       ├── client.go         # HTTP Client 생성
-│       ├── retry.go          # 재시도 로직
-│       └── client_test.go    # 테스트
 │
 ├── migrations/               # DB 마이그레이션
 │
@@ -181,17 +208,86 @@ backend/
 
 ## 레이어별 파일 수
 
-| 레이어 | 파일 수 | 역할 |
-|--------|---------|------|
-| contracts | 6 | 타입/인터페이스 정의 |
-| brain | 1 | 오케스트레이터 |
-| data | 3 | 데이터 수집/유니버스 |
-| signals | 7 | 시그널 생성 (momentum, technical, value, quality, flow, event, builder) |
-| selection | 2 | 스크리닝/랭킹 |
-| portfolio | 2 | 포트폴리오 구성 |
-| execution | 2 | 주문 실행 |
-| audit | 2 | 성과 분석 |
-| **Total** | **~25** | v10 brain 42개 → 25개 |
+| 레이어 | 파일 수 | 역할 | 상태 |
+|--------|---------|------|------|
+| contracts | 8 | 타입/인터페이스 정의 | ✅ 완성 |
+| brain | 1 | 오케스트레이터 | ✅ 완성 |
+| s0_data | 4 | 데이터 품질 검증 | ⚠️ 부분 완성 |
+| s1_universe | 3 | 유니버스 생성 | ✅ 완성 |
+| s2_signals | 8 | 6팩터 시그널 생성 | ⚠️ 부분 완성 |
+| selection | 3 | 스크리닝/랭킹 | ✅ 완성 |
+| portfolio | 3 | 포트폴리오 구성 | ⚠️ 부분 완성 |
+| execution | 4 | 주문 실행 | ⚠️ 부분 완성 |
+| audit | 4 | 성과 분석 | ✅ 완성 |
+| backtest | 2 | 백테스트 프레임워크 | ⚠️ 부분 완성 |
+| external | 6 | 외부 API (DART, Naver, KRX) | ✅ 완성 |
+| **Total** | **~47** | 7,500+ 라인 | |
+
+---
+
+## 7단계 파이프라인 흐름
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Brain Orchestrator                                 │
+│                     (internal/brain/orchestrator.go)                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        ▼                           ▼                           ▼
+┌───────────────┐           ┌───────────────┐           ┌───────────────┐
+│   S0: Data    │──────────▶│  S1: Universe │──────────▶│  S2: Signals  │
+│   Quality     │           │   Builder     │           │   Builder     │
+├───────────────┤           ├───────────────┤           ├───────────────┤
+│ • 커버리지 검증│           │ • 시총 필터   │           │ • Momentum    │
+│ • 품질 점수   │           │ • 거래대금    │           │ • Technical   │
+│ • 필수 데이터 │           │ • 관리종목 제외│           │ • Value       │
+│               │           │ • 거래정지 제외│           │ • Quality     │
+│               │           │               │           │ • Flow        │
+│               │           │               │           │ • Event       │
+└───────────────┘           └───────────────┘           └───────────────┘
+        │                           │                           │
+        │ DataQualitySnapshot       │ Universe                  │ SignalSet
+        ▼                           ▼                           ▼
+┌───────────────┐           ┌───────────────┐           ┌───────────────┐
+│  S3: Screener │──────────▶│  S4: Ranker   │──────────▶│ S5: Portfolio │
+├───────────────┤           ├───────────────┤           ├───────────────┤
+│ • 모멘텀 컷   │           │ • 가중치 적용 │           │ • Top-N 선정  │
+│ • PER/PBR 컷  │           │ • 종합 점수   │           │ • 비중 계산   │
+│ • ROE 컷      │           │ • 순위 정렬   │           │ • 제약조건    │
+│ • 수급 컷     │           │               │           │ • 현금 비중   │
+└───────────────┘           └───────────────┘           └───────────────┘
+        │                           │                           │
+        │ screened[]                │ RankedStock[]             │ TargetPortfolio
+        ▼                           ▼                           ▼
+┌───────────────┐           ┌───────────────┐
+│ S6: Execution │──────────▶│  S7: Audit    │
+├───────────────┤           ├───────────────┤
+│ • 주문 생성   │           │ • 수익률 분석 │
+│ • 매도 우선   │           │ • 리스크 지표 │
+│ • 슬리피지    │           │ • 팩터 기여도 │
+│ • 분할 주문   │           │ • 벤치마크    │
+└───────────────┘           └───────────────┘
+        │                           │
+        │ Order[]                   │ PerformanceReport
+        ▼                           ▼
+    [Broker]                   [Dashboard]
+```
+
+---
+
+## 데이터 흐름 상세
+
+| 단계 | 입력 | 출력 | 핵심 로직 |
+|------|------|------|----------|
+| **S0** | Raw Data | `DataQualitySnapshot` | 커버리지 ≥ 70% 검증 |
+| **S1** | S0 결과 | `Universe` (종목 리스트) | 시총/거래대금/관리종목 필터 |
+| **S2** | Universe | `SignalSet` (6팩터) | 각 팩터 -1.0~1.0 정규화 |
+| **S3** | SignalSet | `screened[]` | 하드컷 조건 적용 |
+| **S4** | screened + SignalSet | `RankedStock[]` | 가중합 점수 계산, 정렬 |
+| **S5** | RankedStock[] | `TargetPortfolio` | Top-20, 비중 배분 |
+| **S6** | TargetPortfolio | `Order[]` | Diff 계산, 주문 생성 |
+| **S7** | 실행 결과 | `PerformanceReport` | 수익률/리스크/기여도 |
 
 ---
 

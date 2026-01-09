@@ -1300,11 +1300,10 @@ internal/monitoring/
 
 ## 참고 문서
 
-- [System Overview](./system-overview.md)
-- [Data Flow](../architecture/data-flow.md)
-- [Backend Folder Structure](../backend/folder-structure.md)
-- [Database Schema](../database/schema-design.md)
-- [SSOT Policy](/.claude/rules/ssot-policy.md)
+- [System Overview](../architecture/system-overview)
+- [Data Flow](../architecture/data-flow)
+- [Backend Folder Structure](../backend/folder-structure)
+- [Database Schema](../database/schema-design)
 
 ---
 

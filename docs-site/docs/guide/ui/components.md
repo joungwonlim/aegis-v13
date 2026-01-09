@@ -373,5 +373,4 @@ import { StockCard } from '@/modules/stock/components/StockCard'
 
 ---
 
-**Prev**: [Foundation](./foundation.md)
-**Next**: [Layouts](./layouts.md)
+**Prev**: [Foundation](./foundation)

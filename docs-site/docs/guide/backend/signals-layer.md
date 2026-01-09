@@ -16,6 +16,25 @@ Universe에 포함된 종목들의 **팩터/이벤트 시그널**을 계산
 
 ---
 
+## 구현 상태 (2026-01-10)
+
+| 컴포넌트 | 상태 | 파일 |
+|---------|------|------|
+| **SignalBuilder** | ✅ 완료 | `internal/s2_signals/builder.go` |
+| **Momentum** | ✅ 완료 | `internal/s2_signals/momentum.go` |
+| **Technical** | ✅ 완료 | `internal/s2_signals/technical.go` |
+| **Value** | ✅ 완료 | `internal/s2_signals/value.go` |
+| **Quality** | ✅ 완료 | `internal/s2_signals/quality.go` |
+| **Flow (수급)** | ✅ 완료 | `internal/s2_signals/flow.go` |
+| **Event** | ✅ 완료 | `internal/s2_signals/event.go` |
+| **Repository** | ✅ 완료 | `internal/s2_signals/repository.go` |
+
+:::tip YAML SSOT
+팩터 가중치와 정규화 설정은 `backend/config/strategy/korea_equity_v13.yaml`의 `signals` 섹션에서 관리됩니다.
+:::
+
+---
+
 ## 폴더 구조
 
 ```
