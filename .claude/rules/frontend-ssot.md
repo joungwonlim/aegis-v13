@@ -95,5 +95,5 @@ import type { Stock } from '@/modules/stocks/types'
 
 ## 참고 문서
 
-- `docs/guide/frontend/` - 프론트엔드 가이드
+- `docs-site/docs/guide/frontend/` - 프론트엔드 가이드
 - `CLAUDE.md` - 프로젝트 규칙

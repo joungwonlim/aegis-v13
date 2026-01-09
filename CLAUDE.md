@@ -50,7 +50,8 @@ aegis-v13/
 │       ├── app/           # Next.js App Router
 │       ├── modules/       # 도메인별 모듈
 │       └── shared/        # 공용 컴포넌트/훅
-└── docs/                  # 문서
+└── docs-site/             # Docusaurus 문서 사이트
+    └── docs/guide/        # 가이드 문서
 ```
 
 ---
@@ -140,7 +141,7 @@ tidy(scope): summary   # 동작 변경 없는 정리
 
 ## 작업 순서
 
-1. **문서 확인**: `docs/guide/` 관련 문서 읽기
+1. **문서 확인**: `docs-site/docs/guide/` 관련 문서 읽기
 2. **SSOT 위치 확인**: 어디서 작업해야 하는지 확인
 3. **최소 변경**: 필요한 것만 수정
 4. **품질 게이트**: lint, test 통과
@@ -181,7 +182,8 @@ interface Stock { ... }
 
 | 문서 | 위치 |
 |------|------|
-| 시스템 구조 | `docs/guide/architecture/` |
-| 백엔드 레이어 | `docs/guide/backend/` |
-| 프론트엔드 | `docs/guide/frontend/` |
-| DB 스키마 | `docs/guide/database/` |
+| 시스템 구조 | `docs-site/docs/guide/architecture/` |
+| 백엔드 레이어 | `docs-site/docs/guide/backend/` |
+| 프론트엔드 | `docs-site/docs/guide/frontend/` |
+| DB 스키마 | `docs-site/docs/guide/database/` |
+| UI 디자인 | `docs-site/docs/guide/ui/` |

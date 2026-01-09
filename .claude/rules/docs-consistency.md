@@ -10,8 +10,8 @@
 
 | 문서 | 역할 | 변경 시 확인 |
 |------|------|--------------|
-| `docs/README.md` | 폴더 구조 설명 | 폴더/파일 변경 시 필수 업데이트 |
-| `docs/guide/` | 가이드 문서 | 기능 변경 시 필수 업데이트 |
+| `docs-site/docs/guide/` | 가이드 문서 | 기능 변경 시 필수 업데이트 |
+| `docs-site/sidebars.ts` | 사이드바 구조 | 문서 추가/삭제 시 필수 업데이트 |
 
 ---
 
@@ -20,14 +20,14 @@
 ### 1. 폴더 생성/삭제/이름 변경
 
 ```
-□ docs/README.md - 폴더 구조 다이어그램 업데이트
+□ docs-site/sidebars.ts - 사이드바 구조 업데이트
 □ CLAUDE.md - 구조 설명 업데이트 (필요시)
 ```
 
 ### 2. 파일 생성/삭제/이동
 
 ```
-□ docs/README.md - 폴더 구조 다이어그램 업데이트 (필요시)
+□ docs-site/sidebars.ts - 사이드바 항목 추가/삭제
 □ 이동된 파일을 참조하는 다른 문서들 링크 수정
 ```
 
@@ -45,17 +45,17 @@
 
 ```bash
 # 현재 폴더 구조 확인
-find docs/ -type f -name "*.md" | sort
+find docs-site/docs/ -type f -name "*.md" | sort
 
-# README.md의 폴더 구조와 비교
-cat docs/README.md
+# 사이드바 구조 확인
+cat docs-site/sidebars.ts
 ```
 
 ---
 
 ## 금지 사항
 
-1. **폴더/파일 변경 후 README.md 미수정** ❌
+1. **문서 추가 후 sidebars.ts 미수정** ❌
 2. **문서 삭제 후 참조 링크 미정리** ❌
 3. **파일 이동 후 기존 경로 참조 방치** ❌
 
@@ -67,9 +67,9 @@ cat docs/README.md
 
 ```bash
 # 존재하지 않는 경로 참조 찾기
-grep -rn "\[.*\](.*\.md)" docs/ | while read line; do
+grep -rn "\[.*\](.*\.md)" docs-site/docs/ | while read line; do
   file=$(echo "$line" | sed 's/.*(\(.*\.md\)).*/\1/')
-  if [[ ! -f "docs/$file" ]]; then
+  if [[ ! -f "docs-site/docs/$file" ]]; then
     echo "Broken link: $line"
   fi
 done
@@ -79,17 +79,16 @@ done
 
 ## 예시: 올바른 작업 흐름
 
-### Before: 폴더 이동 작업
+### Before: 문서 추가 작업
 
 ```
-guide/ → reference/ 로 이동
+새 문서: docs-site/docs/guide/backend/new-feature.md
 ```
 
 ### After: 필수 업데이트
 
-1. ✅ 파일들을 reference/로 이동
-2. ✅ docs/README.md 폴더 구조 수정
-3. ✅ 기존 경로 참조하는 모든 문서 링크 수정
-4. ✅ 빈 폴더 삭제
+1. ✅ 문서 파일 생성
+2. ✅ docs-site/sidebars.ts에 항목 추가
+3. ✅ 관련 문서에서 링크 추가 (필요시)
 
 **이 모든 단계가 완료되어야 작업 완료!**
