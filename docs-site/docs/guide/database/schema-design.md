@@ -551,5 +551,98 @@ CREATE INDEX idx_attribution_date ON audit.signal_attribution(date);
 
 ---
 
+## 마이그레이션 전략
+
+### v10 데이터 현황
+
+| 항목 | 값 |
+|------|------|
+| **데이터 기간** | 2022-01-03 ~ 2026-01-09 |
+| **총 영업일** | 983일 (약 4년) |
+| **종목 수** | 2,835개 (활성) |
+| **가격 레코드** | 3,035,230 rows |
+| **수급 레코드** | 2,438,932 rows |
+
+### 마이그레이션 순서
+
+#### Phase 1: 스키마 생성
+```sql
+-- 001_create_schemas.sql
+CREATE SCHEMA data;
+CREATE SCHEMA signals;
+CREATE SCHEMA selection;
+CREATE SCHEMA portfolio;
+CREATE SCHEMA execution;
+CREATE SCHEMA audit;
+```
+
+#### Phase 2: data 스키마 (v10 직접 이전)
+```sql
+-- 002_create_data_tables.sql
+-- 테이블 생성 (stocks, prices, investor_flow, fundamentals 등)
+
+-- 003_migrate_from_v10.sql
+-- v10 데이터 이전 (INSERT INTO ... SELECT FROM ...)
+```
+
+**v10 → v13 매핑**:
+- `market.stocks` → `data.stocks`
+- `market.daily_prices` → `data.prices`
+- `market.investor_trading` → `data.investor_flow` ⭐
+- `analysis.fundamentals` → `data.fundamentals`
+
+#### Phase 3: signals 스키마 (계산 필요)
+```sql
+-- 004_create_signals_tables.sql
+-- 005_calculate_flow_details.sql  (investor_flow → 5D/20D 누적)
+-- 006_calculate_technical.sql     (prices → MA, RSI, MACD)
+```
+
+#### Phase 4: 나머지 스키마
+```sql
+-- 007_create_selection_tables.sql
+-- 008_create_portfolio_tables.sql
+-- 009_create_execution_tables.sql
+-- 010_create_audit_tables.sql
+```
+
+### 마이그레이션 실행
+
+```bash
+# 1. 스키마 생성
+psql -U aegis_v13 -d aegis_v13 -f backend/migrations/001_create_schemas.sql
+
+# 2. 테이블 생성
+psql -U aegis_v13 -d aegis_v13 -f backend/migrations/002_create_data_tables.sql
+
+# 3. 데이터 이전 (v10 → v13)
+psql -U aegis_v13 -d aegis_v13 -f backend/migrations/003_migrate_from_v10.sql
+
+# 4. 시그널 계산
+psql -U aegis_v13 -d aegis_v13 -f backend/migrations/004_create_signals_tables.sql
+psql -U aegis_v13 -d aegis_v13 -f backend/migrations/005_calculate_flow_details.sql
+
+# 5. 나머지 스키마
+psql -U aegis_v13 -d aegis_v13 -f backend/migrations/006_*.sql
+```
+
+### 검증
+
+```sql
+-- 레코드 수 확인
+SELECT 'stocks' as table_name, COUNT(*) FROM data.stocks
+UNION ALL
+SELECT 'prices', COUNT(*) FROM data.prices
+UNION ALL
+SELECT 'investor_flow', COUNT(*) FROM data.investor_flow;
+
+-- 예상 결과:
+-- stocks: 2,835
+-- prices: 3,035,230
+-- investor_flow: 2,438,932
+```
+
+---
+
 **Prev**: [Frontend Folder Structure](../frontend/folder-structure.md)
 **Next**: [Getting Started](../overview/getting-started.md)

@@ -15,7 +15,9 @@
 -- =====================================================
 
 -- ============================================
--- 1. stocks 마이그레이션 (1:1 매핑)
+-- 1. stocks 마이그레이션 (컬럼명 변경)
+-- v10: stock_code, stock_name, listed_date, is_active
+-- v13: code, name, listing_date, status
 -- ============================================
 INSERT INTO data.stocks (
     code,
@@ -29,17 +31,17 @@ INSERT INTO data.stocks (
     updated_at
 )
 SELECT
-    code,
-    name,
+    TRIM(stock_code),
+    stock_name,
     market,
     sector,
-    listing_date,
-    delisting_date,
-    COALESCE(status, 'active'),
+    listed_date,
+    delisted_date,
+    CASE WHEN is_active THEN 'active' ELSE 'delisted' END,
     COALESCE(created_at, NOW()),
     COALESCE(updated_at, NOW())
 FROM aegis_v10.market.stocks
-WHERE status = 'active'  -- 활성 종목만
+WHERE is_active = true  -- 활성 종목만
 ON CONFLICT (code) DO UPDATE SET
     name = EXCLUDED.name,
     market = EXCLUDED.market,
@@ -50,7 +52,9 @@ ON CONFLICT (code) DO UPDATE SET
 -- 예상: ~2,835 rows
 
 -- ============================================
--- 2. daily_prices 마이그레이션 (1:1 매핑)
+-- 2. daily_prices 마이그레이션 (컬럼명 변경)
+-- v10: value (bigint, 원 단위)
+-- v13: trading_value (bigint, 원 단위)
 -- ============================================
 INSERT INTO data.daily_prices (
     stock_code,
@@ -64,14 +68,14 @@ INSERT INTO data.daily_prices (
     created_at
 )
 SELECT
-    stock_code,
+    TRIM(stock_code),
     trade_date,
     open_price,
     high_price,
     low_price,
     close_price,
     volume,
-    trading_value,
+    value,  -- v10: value → v13: trading_value
     COALESCE(created_at, NOW())
 FROM aegis_v10.market.daily_prices
 WHERE trade_date >= '2022-01-01'
@@ -88,6 +92,8 @@ ON CONFLICT (stock_code, trade_date) DO UPDATE SET
 
 -- ============================================
 -- 3. investor_flow 마이그레이션 (컬럼명 변경)
+-- v10: foreign_net_volume, inst_net_volume, indiv_net_volume
+-- v13: foreign_net_qty, inst_net_qty, indiv_net_qty
 -- ============================================
 INSERT INTO data.investor_flow (
     stock_code,
@@ -101,15 +107,15 @@ INSERT INTO data.investor_flow (
     created_at
 )
 SELECT
-    stock_code,
+    TRIM(stock_code),
     trade_date,
-    COALESCE(foreign_net_qty, 0),
+    COALESCE(foreign_net_volume, 0),  -- v10: volume → v13: qty
     COALESCE(foreign_net_value, 0),
-    COALESCE(inst_net_qty, 0),
+    COALESCE(inst_net_volume, 0),     -- v10: volume → v13: qty
     COALESCE(inst_net_value, 0),
-    COALESCE(indiv_net_qty, 0),
+    COALESCE(indiv_net_volume, 0),    -- v10: volume → v13: qty
     COALESCE(indiv_net_value, 0),
-    COALESCE(created_at, NOW())
+    NOW()
 FROM aegis_v10.market.investor_trading
 WHERE trade_date >= '2022-01-01'
 ON CONFLICT (stock_code, trade_date) DO UPDATE SET
@@ -124,7 +130,10 @@ ON CONFLICT (stock_code, trade_date) DO UPDATE SET
 -- 예상: ~2,438,932 rows
 
 -- ============================================
--- 4. fundamentals 마이그레이션 (1:1 매핑)
+-- 4. fundamentals 마이그레이션 (컬럼명 변경)
+-- v10: as_of_date
+-- v13: report_date
+-- 주의: v10에는 revenue, operating_profit, net_profit 없음 (NULL)
 -- ============================================
 INSERT INTO data.fundamentals (
     stock_code,
@@ -139,26 +148,23 @@ INSERT INTO data.fundamentals (
     created_at
 )
 SELECT
-    stock_code,
-    report_date,
+    TRIM(stock_code),
+    as_of_date,  -- v10: as_of_date → v13: report_date
     per,
     pbr,
     roe,
     debt_ratio,
-    revenue,
-    operating_profit,
-    net_profit,
+    NULL,  -- revenue (v10에 없음)
+    NULL,  -- operating_profit (v10에 없음)
+    NULL,  -- net_profit (v10에 없음)
     COALESCE(created_at, NOW())
 FROM aegis_v10.analysis.fundamentals
-WHERE report_date >= '2022-01-01'
+WHERE as_of_date >= '2022-01-01'
 ON CONFLICT (stock_code, report_date) DO UPDATE SET
     per = EXCLUDED.per,
     pbr = EXCLUDED.pbr,
     roe = EXCLUDED.roe,
-    debt_ratio = EXCLUDED.debt_ratio,
-    revenue = EXCLUDED.revenue,
-    operating_profit = EXCLUDED.operating_profit,
-    net_profit = EXCLUDED.net_profit;
+    debt_ratio = EXCLUDED.debt_ratio;
 
 -- 검증: SELECT COUNT(*) FROM data.fundamentals;
 -- 예상: ~12,432 rows
