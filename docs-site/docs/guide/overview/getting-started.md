@@ -135,6 +135,16 @@ pnpm dev
 # Ready on http://localhost:3000
 ```
 
+### CLI로 실행
+
+```bash
+# Backend (8080 포트 kill 후 재시작)
+go run ./cmd/quant backend start
+
+# Frontend (3000 포트 kill 후 재시작)
+go run ./cmd/quant frontend start
+```
+
 ### 프로덕션 빌드
 
 ```bash

@@ -66,23 +66,58 @@ github.com/rs/zerolog         // 구조화 로깅
 
 ### CLI 명령어
 
+#### 기본 실행 순서
+
 ```bash
-# API 서버
-go run ./cmd/quant api
+# 1. 데이터 수집 (KIS, DART, Naver 전체)
+go run ./cmd/quant fetcher collect all
 
-# 데이터 수집 (Fetcher)
-go run ./cmd/quant fetcher collect kis    # KIS 시세
-go run ./cmd/quant fetcher collect dart   # DART 공시
-go run ./cmd/quant fetcher collect naver  # Naver 수급
-go run ./cmd/quant fetcher collect all    # 전체 수집
-
-# Worker (백그라운드 작업)
-go run ./cmd/quant worker start
-go run ./cmd/quant worker start --concurrency 5
-
-# 파이프라인 실행
-go run ./cmd/quant brain run --date 2024-01-15
+# 2. 파이프라인 실행
+go run ./cmd/quant brain run
 ```
+
+#### 추가 옵션
+
+**Brain 옵션**
+
+```bash
+# 특정 날짜로 실행
+go run ./cmd/quant brain run --date 2026-01-10
+
+# 자본금 지정 (기본: 1억원)
+go run ./cmd/quant brain run --capital 200000000
+
+# 실제 주문 없이 계획만 생성
+go run ./cmd/quant brain run --dry-run
+```
+
+**Fetcher 옵션**
+
+```bash
+# 특정 소스만 수집
+go run ./cmd/quant fetcher collect kis
+go run ./cmd/quant fetcher collect dart
+go run ./cmd/quant fetcher collect naver
+
+# 비동기 수집 (큐에 작업 추가)
+go run ./cmd/quant fetcher collect all --async
+```
+
+**서버 실행**
+
+```bash
+# Backend (8080 포트 kill 후 재시작)
+go run ./cmd/quant backend start
+
+# Frontend (3000 포트 kill 후 재시작)
+go run ./cmd/quant frontend start
+```
+
+#### 참고사항
+
+현재 `brain run`은 **재무 데이터 없이도** 작동하도록 설정되어 있습니다. 완전한 필터링을 위해서는:
+1. DART에서 재무제표 수집 필요 (PER/PBR/ROE 필터용)
+2. 매일 market_cap 데이터 수집 권장
 
 ---
 

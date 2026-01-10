@@ -143,3 +143,9 @@ func (l *Logger) Errorf(format string, args ...interface{}) {
 func (l *Logger) Fatalf(format string, args ...interface{}) {
 	l.zlog.Fatal().Msgf(format, args...)
 }
+
+// Zerolog returns the underlying zerolog.Logger
+// 외부 패키지에서 zerolog 기능이 필요할 때 사용
+func (l *Logger) Zerolog() zerolog.Logger {
+	return l.zlog
+}

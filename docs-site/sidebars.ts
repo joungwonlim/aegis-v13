@@ -48,6 +48,7 @@ const sidebars: SidebarsConfig = {
         'guide/backend/execution-layer',
         'guide/backend/audit-layer',
         'guide/backend/infrastructure',
+        'guide/backend/forecast-layer',
       ],
     },
     {

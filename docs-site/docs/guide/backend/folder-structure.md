@@ -119,6 +119,7 @@ backend/
 │   │   ├── portfolio.go      # TargetPortfolio (S5→S6)
 │   │   ├── order.go          # Order (S6→Broker)
 │   │   ├── audit.go          # PerformanceReport (S7)
+│   │   ├── forecast.go       # ForecastEvent, ForecastStats (예측)
 │   │   └── interfaces.go     # 7단계 인터페이스
 │   │
 │   ├── brain/                # ⭐ 오케스트레이터
@@ -155,6 +156,13 @@ backend/
 │   ├── portfolio/            # S5: 포트폴리오 구성
 │   │   ├── constructor.go    # 포트폴리오 생성
 │   │   ├── constraints.go    # 제약조건 적용
+│   │   └── repository.go
+│   │
+│   ├── forecast/             # 이벤트 기반 예측
+│   │   ├── detector.go       # E1/E2 이벤트 감지
+│   │   ├── tracker.go        # 전방 성과 추적
+│   │   ├── aggregator.go     # 4단계 폴백 통계
+│   │   ├── predictor.go      # 베이지안 예측
 │   │   └── repository.go
 │   │
 │   ├── execution/            # S6: 주문 실행
