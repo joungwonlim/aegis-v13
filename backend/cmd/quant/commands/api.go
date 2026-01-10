@@ -13,6 +13,7 @@ import (
 	"github.com/wonny/aegis/v13/backend/internal/api"
 	"github.com/wonny/aegis/v13/backend/internal/api/handlers"
 	"github.com/wonny/aegis/v13/backend/internal/external/dart"
+	"github.com/wonny/aegis/v13/backend/internal/external/kis"
 	"github.com/wonny/aegis/v13/backend/internal/external/krx"
 	"github.com/wonny/aegis/v13/backend/internal/external/naver"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data"
@@ -34,13 +35,30 @@ var apiCmd = &cobra.Command{
 이 명령어는:
 - HTTP API 서버 시작
 - 데이터 조회 엔드포인트 제공
-- 데이터 수집 트리거 제공
+- KIS 거래 API 엔드포인트 제공
 
 Endpoints:
-  GET  /health               - Health check
-  GET  /api/data/quality     - 품질 스냅샷 조회
-  GET  /api/data/universe    - Universe 조회
-  POST /api/data/collect     - 데이터 수집 트리거
+  GET  /health                      - Health check
+
+  Data:
+  GET  /api/data/quality            - 품질 스냅샷 조회
+  GET  /api/data/universe           - Universe 조회
+  POST /api/data/collect            - 데이터 수집 트리거
+
+  Trading (KIS):
+  GET  /api/trading/balance         - 잔고 조회
+  GET  /api/trading/positions       - 보유종목 조회
+  GET  /api/trading/orders          - 주문 조회
+  GET  /api/trading/orders/unfilled - 미체결 주문
+  GET  /api/trading/orders/filled   - 체결 주문
+  POST /api/trading/orders          - 주문 실행
+  DELETE /api/trading/orders        - 주문 취소
+  GET  /api/trading/price           - 현재가 조회
+
+  WebSocket:
+  GET  /api/trading/ws/status       - WS 연결 상태
+  POST /api/trading/ws/subscribe    - 실시간 구독
+  POST /api/trading/ws/unsubscribe  - 구독 해제
 
 Example:
   go run ./cmd/quant api
@@ -116,16 +134,34 @@ func runAPIServer(cmd *cobra.Command, args []string) error {
 	// 8. Create collector
 	col := collector.NewCollector(naverClient, dartClient, krxClient, dataRepo, log)
 
-	// 9. Create handler
+	// 9. Create KIS client
+	kisClient := kis.NewClient(cfg.KIS, httpClient, log)
+
+	// 10. Create KIS WebSocket client (optional - only if HTS ID is set)
+	var kisWSClient *kis.WSClient
+	if cfg.KIS.HtsID != "" {
+		kisWSClient = kis.NewWSClient(cfg.KIS, log)
+		kisWSClient.SetHtsID(cfg.KIS.HtsID)
+
+		// Connect WebSocket in background
+		go func() {
+			if err := kisWSClient.Connect(context.Background()); err != nil {
+				log.WithError(err).Warn("Failed to connect KIS WebSocket")
+			}
+		}()
+	}
+
+	// 11. Create handlers
 	dataHandler := handlers.NewDataHandler(dataRepo, universeRepo, col, qualityGate, log)
+	tradingHandler := handlers.NewTradingHandler(kisClient, kisWSClient, log)
 
-	// 10. Create router
-	router := api.NewRouter(dataHandler, log)
+	// 12. Create router
+	router := api.NewRouter(dataHandler, tradingHandler, log)
 
-	// 11. Create server
+	// 13. Create server
 	server := api.New(cfg, log, router)
 
-	// 12. Start server with graceful shutdown
+	// 14. Start server with graceful shutdown
 	go func() {
 		if err := server.Start(); err != nil {
 			log.WithError(err).Fatal("Failed to start server")
@@ -139,6 +175,12 @@ func runAPIServer(cmd *cobra.Command, args []string) error {
 	fmt.Println("  GET  /api/data/quality")
 	fmt.Println("  GET  /api/data/universe")
 	fmt.Println("  POST /api/data/collect")
+	fmt.Println("\nTrading endpoints:")
+	fmt.Println("  GET  /api/trading/balance")
+	fmt.Println("  GET  /api/trading/positions")
+	fmt.Println("  GET  /api/trading/orders")
+	fmt.Println("  POST /api/trading/orders")
+	fmt.Println("  GET  /api/trading/price?stock_code=005930")
 	fmt.Println("\nPress Ctrl+C to stop")
 
 	// Wait for interrupt signal

@@ -13,7 +13,7 @@ import (
 
 // NewRouter creates and configures the HTTP router
 // ⭐ SSOT: 라우팅 설정은 이 함수에서만
-func NewRouter(dataHandler *handlers.DataHandler, log *logger.Logger) http.Handler {
+func NewRouter(dataHandler *handlers.DataHandler, tradingHandler *handlers.TradingHandler, log *logger.Logger) http.Handler {
 	r := mux.NewRouter()
 
 	// Health check
@@ -27,7 +27,23 @@ func NewRouter(dataHandler *handlers.DataHandler, log *logger.Logger) http.Handl
 	api.HandleFunc("/data/universe", dataHandler.GetUniverse).Methods("GET")
 	api.HandleFunc("/data/collect", dataHandler.Collect).Methods("POST")
 
+	// Trading endpoints (KIS API)
+	api.HandleFunc("/trading/balance", tradingHandler.GetBalance).Methods("GET")
+	api.HandleFunc("/trading/positions", tradingHandler.GetPositions).Methods("GET")
+	api.HandleFunc("/trading/orders", tradingHandler.GetOrders).Methods("GET")
+	api.HandleFunc("/trading/orders/unfilled", tradingHandler.GetUnfilledOrders).Methods("GET")
+	api.HandleFunc("/trading/orders/filled", tradingHandler.GetFilledOrders).Methods("GET")
+	api.HandleFunc("/trading/orders", tradingHandler.PlaceOrder).Methods("POST")
+	api.HandleFunc("/trading/orders", tradingHandler.CancelOrder).Methods("DELETE")
+	api.HandleFunc("/trading/price", tradingHandler.GetCurrentPrice).Methods("GET")
+
+	// WebSocket management endpoints
+	api.HandleFunc("/trading/ws/status", tradingHandler.GetWebSocketStatus).Methods("GET")
+	api.HandleFunc("/trading/ws/subscribe", tradingHandler.Subscribe).Methods("POST")
+	api.HandleFunc("/trading/ws/unsubscribe", tradingHandler.Unsubscribe).Methods("POST")
+
 	// Apply middleware
+	r.Use(corsMiddleware())
 	r.Use(loggingMiddleware(log))
 	r.Use(recoveryMiddleware(log))
 
@@ -80,6 +96,27 @@ func recoveryMiddleware(log *logger.Logger) mux.MiddlewareFunc {
 					})
 				}
 			}()
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// corsMiddleware handles CORS preflight requests
+func corsMiddleware() mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Set CORS headers
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+
+			// Handle preflight requests
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 
 			next.ServeHTTP(w, r)
 		})
