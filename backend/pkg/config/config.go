@@ -19,6 +19,9 @@ type Config struct {
 	// Database
 	Database DatabaseConfig
 
+	// Redis
+	Redis RedisConfig
+
 	// External APIs
 	KIS   KISConfig
 	DART  DARTConfig
@@ -31,6 +34,15 @@ type Config struct {
 	// Monitoring
 	MetricsEnabled bool
 	MetricsPort    string
+}
+
+// RedisConfig holds Redis configuration
+type RedisConfig struct {
+	Host     string
+	Port     string
+	Password string
+	DB       int
+	Enabled  bool
 }
 
 // DatabaseConfig holds PostgreSQL configuration
@@ -93,6 +105,15 @@ func Load() (*Config, error) {
 			MinConns:        getEnvAsInt("DB_MIN_CONNS", 5),
 			MaxConnLifetime: getEnvAsDuration("DB_MAX_CONN_LIFETIME", "1h"),
 			MaxConnIdleTime: getEnvAsDuration("DB_MAX_CONN_IDLE_TIME", "30m"),
+		},
+
+		// Redis
+		Redis: RedisConfig{
+			Host:     getEnv("REDIS_HOST", "localhost"),
+			Port:     getEnv("REDIS_PORT", "6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getEnvAsInt("REDIS_DB", 0),
+			Enabled:  getEnvAsBool("REDIS_ENABLED", true),
 		},
 
 		// External APIs

@@ -11,14 +11,17 @@ import (
 
 	"github.com/wonny/aegis/v13/backend/pkg/config"
 	"github.com/wonny/aegis/v13/backend/pkg/logger"
+	"github.com/wonny/aegis/v13/backend/pkg/redis"
 )
 
 // Client is an HTTP client wrapper with retry logic and logging
 // ⭐ SSOT: 모든 HTTP 요청은 이 클라이언트를 통해서만 수행
 type Client struct {
-	httpClient *http.Client
-	logger     *logger.Logger
-	retryConfig RetryConfig
+	httpClient   *http.Client
+	logger       *logger.Logger
+	retryConfig  RetryConfig
+	rateLimiter  *redis.RateLimiter
+	rateLimitCfg *redis.RateLimitConfig
 }
 
 // RetryConfig holds retry configuration
@@ -67,6 +70,13 @@ func (c *Client) DisableRetry() *Client {
 	return c
 }
 
+// WithRateLimiter sets the rate limiter for this client
+func (c *Client) WithRateLimiter(limiter *redis.RateLimiter, cfg redis.RateLimitConfig) *Client {
+	c.rateLimiter = limiter
+	c.rateLimitCfg = &cfg
+	return c
+}
+
 // Get performs a GET request
 func (c *Client) Get(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -106,6 +116,13 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 	startTime := time.Now()
 	url := req.URL.String()
 	method := req.Method
+
+	// Check rate limit
+	if c.rateLimiter != nil && c.rateLimitCfg != nil {
+		if err := c.rateLimiter.Wait(req.Context(), *c.rateLimitCfg); err != nil {
+			return nil, fmt.Errorf("rate limit wait failed: %w", err)
+		}
+	}
 
 	// Log request
 	c.logger.WithFields(map[string]interface{}{
