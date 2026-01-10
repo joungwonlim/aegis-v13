@@ -351,6 +351,295 @@ toast({ title: '주문 실패', variant: 'destructive' })
 
 ---
 
+## Watchlist (관심종목)
+
+관심종목 테이블 컴포넌트입니다. 다크/라이트 테마 모두 지원합니다.
+
+### 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  관심종목                    [+ 종목 추가] [↻] [∧]          │
+├─────────────────────────────────────────────────────────────┤
+│  순번   종목명              현재가           전일대비       │
+├─────────────────────────────────────────────────────────────┤
+│  1     🔴 에이비프로바이오    211     ▲ 2 (+0.96%)     🗑   │
+│        195990                                               │
+├─────────────────────────────────────────────────────────────┤
+│  2     🔴 리튬포어스          916     ▼ 29 (-3.07%)    🗑   │
+│        073570                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 기본 사용
+
+```tsx
+import { Watchlist } from '@/modules/watchlist/components/Watchlist'
+
+const stocks = [
+  {
+    rank: 1,
+    code: '195990',
+    name: '에이비프로바이오',
+    logo: '/logos/195990.png',
+    price: 211,
+    change: 2,
+    changeRate: 0.96,
+  },
+  {
+    rank: 2,
+    code: '073570',
+    name: '리튬포어스',
+    logo: '/logos/073570.png',
+    price: 916,
+    change: -29,
+    changeRate: -3.07,
+  },
+]
+
+<Watchlist
+  stocks={stocks}
+  onAdd={() => openAddModal()}
+  onRefresh={() => refetchData()}
+  onDelete={(code) => removeStock(code)}
+/>
+```
+
+### Props
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `stocks` | `WatchlistStock[]` | Yes | 종목 리스트 |
+| `onAdd` | `() => void` | No | 종목 추가 클릭 핸들러 |
+| `onRefresh` | `() => void` | No | 새로고침 클릭 핸들러 |
+| `onDelete` | `(code: string) => void` | No | 삭제 클릭 핸들러 |
+| `isCollapsible` | `boolean` | No | 접기/펼치기 기능 (기본: true) |
+| `className` | `string` | No | 추가 스타일 클래스 |
+
+### WatchlistStock Type
+
+```tsx
+interface WatchlistStock {
+  rank: number           // 순번
+  code: string           // 종목코드 (6자리)
+  name: string           // 종목명
+  logo?: string          // 로고 이미지 URL
+  price: number          // 현재가
+  change: number         // 전일대비 (원)
+  changeRate: number     // 등락률 (%)
+}
+```
+
+### 스타일 가이드
+
+#### 색상
+
+| 상태 | Light Theme | Dark Theme |
+|------|-------------|------------|
+| 상승 (▲) | `text-positive` (#22c55e) | `text-positive` (#22c55e) |
+| 하락 (▼) | `text-negative` (#ef4444) | `text-negative` (#ef4444) |
+| 보합 | `text-muted-foreground` | `text-muted-foreground` |
+| 배경 | `bg-card` (white) | `bg-card` (#1c1c1e) |
+| 테두리 | `border` | `border` |
+
+#### 폰트
+
+```tsx
+// 가격/등락률은 반드시 monospace
+<span className="font-mono">139,000</span>
+<span className="font-mono text-positive">▲ 200 (+0.14%)</span>
+
+// 종목명은 기본 폰트
+<span className="font-medium">삼성전자</span>
+
+// 종목코드는 muted
+<span className="text-sm text-muted-foreground">005930</span>
+```
+
+### 컴포넌트 구현
+
+```tsx
+// modules/watchlist/components/Watchlist.tsx
+
+import { useState } from 'react'
+import { Card, CardHeader, CardTitle, CardContent } from '@/shared/components/ui/card'
+import { Button } from '@/shared/components/ui/button'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/shared/components/ui/table'
+import { Plus, RefreshCw, ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
+import { cn } from '@/shared/lib/utils'
+
+interface WatchlistStock {
+  rank: number
+  code: string
+  name: string
+  logo?: string
+  price: number
+  change: number
+  changeRate: number
+}
+
+interface WatchlistProps {
+  stocks: WatchlistStock[]
+  onAdd?: () => void
+  onRefresh?: () => void
+  onDelete?: (code: string) => void
+  isCollapsible?: boolean
+  className?: string
+}
+
+export function Watchlist({
+  stocks,
+  onAdd,
+  onRefresh,
+  onDelete,
+  isCollapsible = true,
+  className,
+}: WatchlistProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false)
+
+  const formatPrice = (price: number) => {
+    return price.toLocaleString('ko-KR')
+  }
+
+  const formatChange = (change: number, rate: number) => {
+    const sign = change >= 0 ? '▲' : '▼'
+    const absChange = Math.abs(change)
+    const absRate = Math.abs(rate)
+    return `${sign} ${formatPrice(absChange)} (${change >= 0 ? '+' : '-'}${absRate.toFixed(2)}%)`
+  }
+
+  return (
+    <Card className={className}>
+      <CardHeader className="flex flex-row items-center justify-between py-4">
+        <CardTitle className="text-lg font-semibold">관심종목</CardTitle>
+        <div className="flex items-center gap-2">
+          {onAdd && (
+            <Button size="sm" onClick={onAdd}>
+              <Plus className="h-4 w-4 mr-1" />
+              종목 추가
+            </Button>
+          )}
+          {onRefresh && (
+            <Button variant="ghost" size="icon" onClick={onRefresh}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
+          {isCollapsible && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+            >
+              {isCollapsed ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronUp className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+
+      {!isCollapsed && (
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-16 text-center">순번</TableHead>
+                <TableHead>종목명</TableHead>
+                <TableHead className="text-right">현재가</TableHead>
+                <TableHead className="text-right">전일대비</TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {stocks.map((stock) => (
+                <TableRow key={stock.code}>
+                  <TableCell className="text-center text-muted-foreground">
+                    {stock.rank}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      {stock.logo && (
+                        <img
+                          src={stock.logo}
+                          alt={stock.name}
+                          className="h-8 w-8 rounded-full"
+                        />
+                      )}
+                      <div>
+                        <p className="font-medium">{stock.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {stock.code}
+                        </p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {formatPrice(stock.price)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      'text-right font-mono',
+                      stock.change > 0 && 'text-positive',
+                      stock.change < 0 && 'text-negative'
+                    )}
+                  >
+                    {formatChange(stock.change, stock.changeRate)}
+                  </TableCell>
+                  <TableCell>
+                    {onDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(stock.code)}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+```
+
+### 테마 지원
+
+Tailwind CSS와 CSS 변수를 사용하여 다크/라이트 테마를 자동으로 지원합니다.
+
+```css
+/* globals.css */
+:root {
+  --positive: 142 76% 36%;  /* green-500 */
+  --negative: 0 84% 60%;    /* red-500 */
+}
+
+.dark {
+  --positive: 142 71% 45%;
+  --negative: 0 91% 71%;
+}
+```
+
+```tsx
+// tailwind.config.ts
+theme: {
+  extend: {
+    colors: {
+      positive: 'hsl(var(--positive))',
+      negative: 'hsl(var(--negative))',
+    }
+  }
+}
+```
+
+---
+
 ## 컴포넌트 사용 규칙
 
 ### ✅ 올바른 사용
@@ -359,6 +648,7 @@ toast({ title: '주문 실패', variant: 'destructive' })
 import { Button } from '@/shared/components/ui/button'
 import { Card } from '@/shared/components/ui/card'
 import { StockCard } from '@/modules/stock/components/StockCard'
+import { Watchlist } from '@/modules/watchlist/components/Watchlist'
 ```
 
 ### ❌ 금지
