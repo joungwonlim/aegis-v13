@@ -323,45 +323,32 @@ func (r *Repository) SaveMarketTrend(ctx context.Context, indexName string, data
 		return nil
 	}
 
+	// 시장 타입 결정 (KOSPI, KOSDAQ 등)
+	marketType := strings.ToUpper(indexName)
+
 	query := `
 		INSERT INTO data.market_indicators (
-			trade_date, indicator_type, indicator_value, source, created_at
-		) VALUES ($1, $2, $3, $4, NOW())
-		ON CONFLICT (trade_date, indicator_type) DO UPDATE SET
-			indicator_value = EXCLUDED.indicator_value,
-			source = EXCLUDED.source,
+			indicator_date, market_type, indicator_name,
+			foreign_net_value, inst_net_value, indiv_net_value,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		ON CONFLICT (indicator_date, market_type, indicator_name) DO UPDATE SET
+			foreign_net_value = EXCLUDED.foreign_net_value,
+			inst_net_value = EXCLUDED.inst_net_value,
+			indiv_net_value = EXCLUDED.indiv_net_value,
 			updated_at = NOW()
 	`
 
-	tx, err := r.db.Begin(ctx)
+	_, err := r.db.Exec(ctx, query,
+		data.TradeDate,
+		marketType,
+		"investor_trend", // 투자자 동향 지표
+		data.ForeignNet,
+		data.InstitutionNet,
+		data.IndividualNet,
+	)
 	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	// Save foreign net
-	indicatorType := fmt.Sprintf("%s_foreign_net", strings.ToLower(indexName))
-	_, err = tx.Exec(ctx, query, data.TradeDate, indicatorType, data.ForeignNet, "naver")
-	if err != nil {
-		return fmt.Errorf("insert foreign net: %w", err)
-	}
-
-	// Save institution net
-	indicatorType = fmt.Sprintf("%s_institution_net", strings.ToLower(indexName))
-	_, err = tx.Exec(ctx, query, data.TradeDate, indicatorType, data.InstitutionNet, "naver")
-	if err != nil {
-		return fmt.Errorf("insert institution net: %w", err)
-	}
-
-	// Save individual net
-	indicatorType = fmt.Sprintf("%s_individual_net", strings.ToLower(indexName))
-	_, err = tx.Exec(ctx, query, data.TradeDate, indicatorType, data.IndividualNet, "naver")
-	if err != nil {
-		return fmt.Errorf("insert individual net: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
+		return fmt.Errorf("insert market trend for %s: %w", marketType, err)
 	}
 
 	return nil
