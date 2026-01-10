@@ -154,7 +154,7 @@ func (r *PriceRepository) GetDailyPrices(ctx context.Context, date time.Time) ([
 		FROM data.daily_prices dp
 		LEFT JOIN prev_prices pp ON dp.stock_code = pp.stock_code
 		LEFT JOIN data.stocks s ON dp.stock_code = s.code
-		LEFT JOIN data.market_cap mc ON dp.stock_code = mc.stock_code AND mc.date = $1
+		LEFT JOIN data.market_cap mc ON dp.stock_code = mc.stock_code AND mc.trade_date = $1
 		WHERE dp.trade_date = $1
 	`
 
