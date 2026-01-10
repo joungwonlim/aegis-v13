@@ -331,4 +331,4 @@ CREATE INDEX idx_snapshots_date ON audit.daily_snapshots(date);
 ---
 
 **Prev**: [Execution Layer](./execution-layer.md)
-**Next**: [Frontend Folder Structure](../frontend/folder-structure.md)
+**Next**: [Infrastructure](./infrastructure.md)

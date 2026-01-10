@@ -29,7 +29,7 @@ description: Go BFF 폴더 구조와 SSOT
        │
        ▼
 ┌─────────────┬─────────────┬─────────────┐
-│ PostgreSQL  │  KIS API    │  DART API   │
+│ PostgreSQL  │    Redis    │ KIS/DART API│
 └─────────────┴─────────────┴─────────────┘
 ```
 
@@ -85,6 +85,7 @@ func NewService(cfg *Config, db *pgxpool.Pool) *Service {
 | **DB 연결** | `pkg/database/` | 다른 곳에서 `pgx.Connect()` |
 | **HTTP 클라이언트** | `pkg/httputil/` | 다른 곳에서 `http.Client{}` |
 | **로깅** | `pkg/logger/` | 다른 곳에서 `log.Println()` |
+| **캐시/레이트리밋** | `pkg/redis/` | 다른 곳에서 직접 Redis 연결 |
 | **외부 API** | `internal/external/` | 다른 레이어에서 직접 호출 |
 | **타입 정의** | `internal/contracts/` | 레이어마다 중복 정의 |
 
@@ -196,6 +197,7 @@ backend/
 ├── pkg/                      # ⭐ 공용 패키지 SSOT
 │   ├── config/               # 환경변수 (SSOT)
 │   ├── database/             # DB 연결 (SSOT)
+│   ├── redis/                # 캐시/레이트리밋 (SSOT)
 │   ├── logger/               # 로깅 (SSOT)
 │   └── httputil/             # HTTP 클라이언트 (SSOT)
 │
