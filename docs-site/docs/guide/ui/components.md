@@ -380,13 +380,9 @@ code만 입력 → 자동으로 name, logo, price, change 연동
 
 ```tsx
 // ✅ code만 추가하면 나머지는 자동!
-const watchlistCodes = ['195990', '073570', '005930']
+const codes = ['195990', '073570', '005930']
 
-<StockDataTable
-  codes={watchlistCodes}
-  holdingCodes={portfolioCodes}      // 녹색점
-  exitMonitoringCodes={exitCodes}    // 빨간점
-/>
+<StockListTable codes={codes} />
 ```
 
 ---
@@ -411,11 +407,11 @@ modules/
 │   └── hooks/
 │       └── useStockInfo.ts        # 종목 정보 조회
 │
-└── watchlist/
+└── stocklist/
     ├── components/
-    │   └── WatchlistTable.tsx     # StockDataTable 래핑
+    │   └── StockListTable.tsx     # StockDataTable 래핑 + 포트폴리오 자동 연동
     └── hooks/
-        └── useWatchlist.ts        # 관심종목 CRUD
+        └── useStockList.ts        # 관심종목 CRUD
 ```
 
 ---
@@ -760,17 +756,17 @@ export function StockDataTable({
 
 ---
 
-## 6. WatchlistTable (관심종목 테이블)
+## 6. StockListTable (종목 리스트 테이블)
 
 ```tsx
-// modules/watchlist/components/WatchlistTable.tsx
+// modules/stocklist/components/StockListTable.tsx
 
-interface WatchlistTableProps {
-  items: { id: number; stock_code: string }[]
-  onDelete?: (id: number) => void
+interface StockListTableProps {
+  codes: string[]
+  onDelete?: (code: string) => void
 }
 
-export function WatchlistTable({ items, onDelete }: WatchlistTableProps) {
+export function StockListTable({ codes, onDelete }: StockListTableProps) {
   // 포트폴리오 보유 종목 조회
   const { data: positions } = usePositions()
 
@@ -784,17 +780,12 @@ export function WatchlistTable({ items, onDelete }: WatchlistTableProps) {
     [positions]
   )
 
-  const codes = items.map(item => item.stock_code)
-
   return (
     <StockDataTable
       codes={codes}
       holdingCodes={holdingCodes}
       exitMonitoringCodes={exitMonitoringCodes}
-      onDelete={(code) => {
-        const item = items.find(i => i.stock_code === code)
-        if (item) onDelete?.(item.id)
-      }}
+      onDelete={onDelete}
     />
   )
 }
@@ -804,29 +795,21 @@ export function WatchlistTable({ items, onDelete }: WatchlistTableProps) {
 
 ## 사용 예시
 
-### 최소 코드로 관심종목 표시
+### 최소 코드로 종목 리스트 표시
 
 ```tsx
-// 이것만 있으면 실시간 가격, 로고, 상태점 모두 자동!
+// ✅ 이것만 있으면 실시간 가격, 로고, 녹색점/빨간점 모두 자동!
 const codes = ['195990', '073570', '005930']
 
-<StockDataTable codes={codes} />
+<StockListTable codes={codes} />
 ```
 
-### 포트폴리오 연동
+### 삭제 기능 추가
 
 ```tsx
-const { data: portfolio } = usePortfolio()
-
-// 보유 종목은 녹색점, 자동청산은 빨간점
-<StockDataTable
-  codes={watchlistCodes}
-  holdingCodes={new Set(portfolio.positions.map(p => p.stock_code))}
-  exitMonitoringCodes={new Set(
-    portfolio.positions
-      .filter(p => p.exit_monitoring_enabled)
-      .map(p => p.stock_code)
-  )}
+<StockListTable
+  codes={codes}
+  onDelete={(code) => removeFromList(code)}
 />
 ```
 
