@@ -34,15 +34,12 @@ description: 기술 스택 소개
 ### 핵심 라이브러리
 
 ```go
-// HTTP
-github.com/go-chi/chi/v5      // 라우터
-
 // Database
 github.com/jackc/pgx/v5       // PostgreSQL 드라이버
+github.com/redis/go-redis/v9  // Redis 클라이언트
 
 // Utilities
 github.com/rs/zerolog         // 구조화 로깅
-github.com/go-playground/validator/v10  // 검증
 ```
 
 ### 아키텍처
