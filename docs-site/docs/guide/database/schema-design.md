@@ -163,19 +163,24 @@ CREATE INDEX idx_investor_flow_stock ON data.investor_flow(stock_code);
 ```sql
 CREATE TABLE data.fundamentals (
     stock_code       VARCHAR(20) NOT NULL,
-    report_date      DATE NOT NULL,
-    per              NUMERIC(10,2),
-    pbr              NUMERIC(10,2),
-    roe              NUMERIC(10,2),
-    debt_ratio       NUMERIC(10,2),
-    revenue          BIGINT,
-    operating_profit BIGINT,
-    net_profit       BIGINT,
+    year             INT NOT NULL,           -- 회계연도
+    quarter          INT NOT NULL,           -- 분기 (1, 2, 3, 4)
+    revenue          BIGINT,                 -- 매출액
+    operating_profit BIGINT,                 -- 영업이익
+    net_profit       BIGINT,                 -- 순이익
+    assets           BIGINT,                 -- 자산총계
+    equity           BIGINT,                 -- 자본총계
+    debt             BIGINT,                 -- 부채총계
+    roe              NUMERIC(10,2),          -- Return on Equity
+    debt_ratio       NUMERIC(10,2),          -- 부채비율
+    per              NUMERIC(10,2),          -- Price to Earnings Ratio
+    pbr              NUMERIC(10,2),          -- Price to Book Ratio
+    psr              NUMERIC(10,2),          -- Price to Sales Ratio
     created_at       TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (stock_code, report_date)
+    PRIMARY KEY (stock_code, year, quarter)
 );
 
-CREATE INDEX idx_fundamentals_date ON data.fundamentals(report_date);
+CREATE INDEX idx_fundamentals_year_quarter ON data.fundamentals(year, quarter);
 ```
 
 ### market_cap (시가총액)

@@ -23,10 +23,10 @@ func NewFinancialRepository(pool *pgxpool.Pool) *FinancialRepository {
 // GetLatestByCode retrieves the most recent financial data for a code before given date
 func (r *FinancialRepository) GetLatestByCode(ctx context.Context, code string, date time.Time) (*contracts.Financial, error) {
 	query := `
-		SELECT code, year, quarter, revenue, op_profit, net_profit,
+		SELECT stock_code, year, quarter, revenue, operating_profit, net_profit,
 		       assets, equity, debt, roe, debt_ratio, per, pbr, psr
-		FROM fundamental.financials
-		WHERE code = $1
+		FROM data.fundamentals
+		WHERE stock_code = $1
 		  AND (year < EXTRACT(YEAR FROM $2)::int
 		       OR (year = EXTRACT(YEAR FROM $2)::int
 		           AND quarter <= EXTRACT(QUARTER FROM $2)::int))
@@ -48,10 +48,10 @@ func (r *FinancialRepository) GetLatestByCode(ctx context.Context, code string, 
 // GetByCodeAndQuarter retrieves financial data for specific year and quarter
 func (r *FinancialRepository) GetByCodeAndQuarter(ctx context.Context, code string, year int, quarter int) (*contracts.Financial, error) {
 	query := `
-		SELECT code, year, quarter, revenue, op_profit, net_profit,
+		SELECT stock_code, year, quarter, revenue, operating_profit, net_profit,
 		       assets, equity, debt, roe, debt_ratio, per, pbr, psr
-		FROM fundamental.financials
-		WHERE code = $1 AND year = $2 AND quarter = $3
+		FROM data.fundamentals
+		WHERE stock_code = $1 AND year = $2 AND quarter = $3
 	`
 
 	var f contracts.Financial
@@ -68,13 +68,13 @@ func (r *FinancialRepository) GetByCodeAndQuarter(ctx context.Context, code stri
 // Save saves a single financial record
 func (r *FinancialRepository) Save(ctx context.Context, financial *contracts.Financial) error {
 	query := `
-		INSERT INTO fundamental.financials (
-			code, year, quarter, revenue, op_profit, net_profit,
+		INSERT INTO data.fundamentals (
+			stock_code, year, quarter, revenue, operating_profit, net_profit,
 			assets, equity, debt, roe, debt_ratio, per, pbr, psr
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		ON CONFLICT (code, year, quarter) DO UPDATE SET
+		ON CONFLICT (stock_code, year, quarter) DO UPDATE SET
 			revenue = EXCLUDED.revenue,
-			op_profit = EXCLUDED.op_profit,
+			operating_profit = EXCLUDED.operating_profit,
 			net_profit = EXCLUDED.net_profit,
 			assets = EXCLUDED.assets,
 			equity = EXCLUDED.equity,

@@ -23,9 +23,9 @@ func NewPriceRepository(pool *pgxpool.Pool) *PriceRepository {
 // GetByCodeAndDate retrieves price for a specific code and date
 func (r *PriceRepository) GetByCodeAndDate(ctx context.Context, code string, date time.Time) (*contracts.Price, error) {
 	query := `
-		SELECT code, date, open_price, high_price, low_price, close_price, volume
-		FROM market.prices
-		WHERE code = $1 AND date = $2
+		SELECT stock_code, trade_date, open_price, high_price, low_price, close_price, volume
+		FROM data.daily_prices
+		WHERE stock_code = $1 AND trade_date = $2
 	`
 
 	var p contracts.Price
@@ -41,10 +41,10 @@ func (r *PriceRepository) GetByCodeAndDate(ctx context.Context, code string, dat
 // GetByCodeAndDateRange retrieves prices for a code within date range
 func (r *PriceRepository) GetByCodeAndDateRange(ctx context.Context, code string, from, to time.Time) ([]*contracts.Price, error) {
 	query := `
-		SELECT code, date, open_price, high_price, low_price, close_price, volume
-		FROM market.prices
-		WHERE code = $1 AND date BETWEEN $2 AND $3
-		ORDER BY date ASC
+		SELECT stock_code, trade_date, open_price, high_price, low_price, close_price, volume
+		FROM data.daily_prices
+		WHERE stock_code = $1 AND trade_date BETWEEN $2 AND $3
+		ORDER BY trade_date ASC
 	`
 
 	rows, err := r.pool.Query(ctx, query, code, from, to)
@@ -67,10 +67,10 @@ func (r *PriceRepository) GetByCodeAndDateRange(ctx context.Context, code string
 // GetLatestByCode retrieves the most recent price for a code
 func (r *PriceRepository) GetLatestByCode(ctx context.Context, code string) (*contracts.Price, error) {
 	query := `
-		SELECT code, date, open_price, high_price, low_price, close_price, volume
-		FROM market.prices
-		WHERE code = $1
-		ORDER BY date DESC
+		SELECT stock_code, trade_date, open_price, high_price, low_price, close_price, volume
+		FROM data.daily_prices
+		WHERE stock_code = $1
+		ORDER BY trade_date DESC
 		LIMIT 1
 	`
 
@@ -87,9 +87,9 @@ func (r *PriceRepository) GetLatestByCode(ctx context.Context, code string) (*co
 // Save saves a single price record
 func (r *PriceRepository) Save(ctx context.Context, price *contracts.Price) error {
 	query := `
-		INSERT INTO market.prices (code, date, open_price, high_price, low_price, close_price, volume)
+		INSERT INTO data.daily_prices (stock_code, trade_date, open_price, high_price, low_price, close_price, volume)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (code, date) DO UPDATE SET
+		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
 			open_price = EXCLUDED.open_price,
 			high_price = EXCLUDED.high_price,
 			low_price = EXCLUDED.low_price,

@@ -23,10 +23,10 @@ func NewDisclosureRepository(pool *pgxpool.Pool) *DisclosureRepository {
 // GetByCodeAndDateRange retrieves disclosures for a code within date range
 func (r *DisclosureRepository) GetByCodeAndDateRange(ctx context.Context, code string, from, to time.Time) ([]*contracts.Disclosure, error) {
 	query := `
-		SELECT code, date, type, title, content
-		FROM fundamental.disclosures
-		WHERE code = $1 AND date BETWEEN $2 AND $3
-		ORDER BY date DESC
+		SELECT stock_code, disclosed_at, category, title, content
+		FROM data.disclosures
+		WHERE stock_code = $1 AND disclosed_at BETWEEN $2 AND $3
+		ORDER BY disclosed_at DESC
 	`
 
 	rows, err := r.pool.Query(ctx, query, code, from, to)
@@ -49,10 +49,10 @@ func (r *DisclosureRepository) GetByCodeAndDateRange(ctx context.Context, code s
 // GetLatestByCode retrieves the most recent disclosures for a code
 func (r *DisclosureRepository) GetLatestByCode(ctx context.Context, code string, limit int) ([]*contracts.Disclosure, error) {
 	query := `
-		SELECT code, date, type, title, content
-		FROM fundamental.disclosures
-		WHERE code = $1
-		ORDER BY date DESC
+		SELECT stock_code, disclosed_at, category, title, content
+		FROM data.disclosures
+		WHERE stock_code = $1
+		ORDER BY disclosed_at DESC
 		LIMIT $2
 	`
 
@@ -76,10 +76,10 @@ func (r *DisclosureRepository) GetLatestByCode(ctx context.Context, code string,
 // Save saves a single disclosure record
 func (r *DisclosureRepository) Save(ctx context.Context, disclosure *contracts.Disclosure) error {
 	query := `
-		INSERT INTO fundamental.disclosures (code, date, type, title, content)
+		INSERT INTO data.disclosures (stock_code, disclosed_at, category, title, content)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (code, date, title) DO UPDATE SET
-			type = EXCLUDED.type,
+		ON CONFLICT (stock_code, disclosed_at, title) DO UPDATE SET
+			category = EXCLUDED.category,
 			content = EXCLUDED.content
 	`
 
