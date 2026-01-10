@@ -64,13 +64,23 @@ github.com/rs/zerolog         // 구조화 로깅
                             └─────────────┘
 ```
 
-### Worker 프로세스
+### CLI 명령어
 
 ```bash
-# API 서버 (HTTP 요청 처리)
-go run ./cmd/api
+# API 서버
+go run ./cmd/quant api
+
+# 데이터 수집 (Fetcher)
+go run ./cmd/quant fetcher collect --source kis    # KIS 시세
+go run ./cmd/quant fetcher collect --source dart   # DART 공시
+go run ./cmd/quant fetcher collect --source naver  # Naver 수급
+go run ./cmd/quant fetcher collect all             # 전체 수집
 
 # Worker (백그라운드 작업)
+go run ./cmd/quant worker start
+go run ./cmd/quant worker start --concurrency 5
+
+# 파이프라인 실행
 go run ./cmd/quant brain run --date 2024-01-15
 ```
 
