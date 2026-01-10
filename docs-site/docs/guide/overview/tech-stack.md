@@ -71,10 +71,10 @@ github.com/rs/zerolog         // 구조화 로깅
 go run ./cmd/quant api
 
 # 데이터 수집 (Fetcher)
-go run ./cmd/quant fetcher collect --source kis    # KIS 시세
-go run ./cmd/quant fetcher collect --source dart   # DART 공시
-go run ./cmd/quant fetcher collect --source naver  # Naver 수급
-go run ./cmd/quant fetcher collect all             # 전체 수집
+go run ./cmd/quant fetcher collect kis    # KIS 시세
+go run ./cmd/quant fetcher collect dart   # DART 공시
+go run ./cmd/quant fetcher collect naver  # Naver 수급
+go run ./cmd/quant fetcher collect all    # 전체 수집
 
 # Worker (백그라운드 작업)
 go run ./cmd/quant worker start
