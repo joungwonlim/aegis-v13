@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wonny/aegis/v13/backend/internal/external/dart"
+	"github.com/wonny/aegis/v13/backend/internal/external/kis"
 	"github.com/wonny/aegis/v13/backend/internal/external/krx"
 	"github.com/wonny/aegis/v13/backend/internal/external/naver"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data"
@@ -131,14 +132,39 @@ func collectKIS() error {
 	fmt.Println("📊 KIS 데이터 수집 시작...")
 	PrintSeparator()
 
-	items := []string{
-		"실시간 시세 데이터",
-		"체결 데이터",
-		"호가 데이터",
+	ctx := context.Background()
+
+	// 1. Load config
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
-	PrintList(items)
-	fmt.Println()
-	PrintWarning("구현 예정: KIS API 연동")
+
+	// 2. Initialize logger
+	log := logger.New(cfg)
+
+	// 3. Create HTTP client
+	httpClient := httputil.New(cfg, log)
+
+	// 4. Create KIS client (⭐ SSOT: KIS API는 이 클라이언트만 사용)
+	kisClient := kis.NewClient(cfg.KIS, httpClient, log)
+
+	// 5. Test with sample stocks
+	testStocks := []string{"005930", "000660", "035720"} // 삼성전자, SK하이닉스, 카카오
+
+	fmt.Printf("\n테스트 종목: %v\n\n", testStocks)
+
+	for _, code := range testStocks {
+		price, err := kisClient.GetCurrentPrice(ctx, code)
+		if err != nil {
+			fmt.Printf("❌ %s: %v\n", code, err)
+			continue
+		}
+		fmt.Printf("✅ %s: 현재가 %.0f, 거래량 %d\n",
+			code, price.ClosePrice, price.Volume)
+	}
+
+	fmt.Println("\n✅ KIS 데이터 수집 완료!")
 	return nil
 }
 
