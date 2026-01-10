@@ -197,18 +197,32 @@ func initOrchestrator() (*brain.Orchestrator, error) {
 	// Note: col is created but not used directly in brain orchestrator
 	// It's used by individual data collection commands
 	_ = collector.NewCollector(naverClient, dartClient, krxClient, dataRepo, log)
-	// TODO: Initialize all signal calculators and proper repositories
+
+	// Create signal calculators
+	momentumCalc := s2_signals.NewMomentumCalculator(log)
+	technicalCalc := s2_signals.NewTechnicalCalculator(log)
+	valueCalc := s2_signals.NewValueCalculator(log)
+	qualityCalc := s2_signals.NewQualityCalculator(log)
+	flowCalc := s2_signals.NewFlowCalculator(log)
+	eventCalc := s2_signals.NewEventCalculator(log)
+
+	// Create data repositories for signals
+	priceRepo := s0_data.NewPriceRepository(db.Pool)
+	flowRepo := s0_data.NewInvestorFlowRepository(db.Pool)
+	financialRepo := s0_data.NewFinancialRepository(db.Pool)
+	disclosureRepo := s0_data.NewDisclosureRepository(db.Pool)
+
 	signalBuilder := s2_signals.NewBuilder(
-		nil, // momentum (TODO)
-		nil, // technical (TODO)
-		nil, // value (TODO)
-		nil, // quality (TODO)
-		nil, // flow (TODO)
-		nil, // event (TODO)
-		nil, // priceRepo (TODO: implement contracts.PriceRepository)
-		nil, // flowRepo (TODO: implement contracts.InvestorFlowRepository)
-		nil, // financialRepo (TODO: implement contracts.FinancialRepository)
-		nil, // disclosureRepo (TODO: implement contracts.DisclosureRepository)
+		momentumCalc,
+		technicalCalc,
+		valueCalc,
+		qualityCalc,
+		flowCalc,
+		eventCalc,
+		priceRepo,
+		flowRepo,
+		financialRepo,
+		disclosureRepo,
 		log,
 	)
 

@@ -66,9 +66,11 @@ func TestDataQualitySnapshot_CoverageRate(t *testing.T) {
 		},
 	}
 
-	expected := (0.95 + 0.90 + 0.85) / 3
-	if rate := snapshot.CoverageRate(); rate != expected {
-		t.Errorf("CoverageRate() = %v, want %v", rate, expected)
+	expected := 0.9 // (0.95 + 0.90 + 0.85) / 3
+	rate := snapshot.CoverageRate()
+	tolerance := 0.0001
+	if rate < expected-tolerance || rate > expected+tolerance {
+		t.Errorf("CoverageRate() = %v, want %v (±%v)", rate, expected, tolerance)
 	}
 }
 

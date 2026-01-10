@@ -3,12 +3,17 @@ package s1_universe
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wonny/aegis/v13/backend/internal/contracts"
 )
+
+// SPAC 판별을 위한 정규식 패턴
+var spacPattern = regexp.MustCompile(`(?i)(스팩|SPAC|스펙|\d+호$|제\d+호)`)
 
 // Builder constructs the investable universe
 type Builder struct {
@@ -133,10 +138,10 @@ func (b *Builder) getAllStocks(ctx context.Context, date time.Time) ([]Stock, er
 			return nil, fmt.Errorf("scan stock: %w", err)
 		}
 
-		// 상태 플래그 설정 (추후 확장)
-		stock.IsAdmin = false  // TODO: 관리종목 판별 로직
-		stock.IsHalted = false // TODO: 거래정지 판별 로직
-		stock.IsSPAC = false   // TODO: SPAC 판별 로직
+		// 상태 플래그 설정
+		stock.IsSPAC = isSPAC(stock.Name)
+		stock.IsAdmin = isAdminStock(stock.Name)
+		stock.IsHalted = false // DB에서 별도 조회 필요 시 확장
 
 		stocks = append(stocks, stock)
 	}
@@ -192,4 +197,22 @@ func (b *Builder) checkExclusion(stock Stock) string {
 	}
 
 	return "" // 통과
+}
+
+// isSPAC checks if a stock is a SPAC based on name pattern
+func isSPAC(name string) bool {
+	return spacPattern.MatchString(name)
+}
+
+// isAdminStock checks if a stock is under administrative supervision
+// 관리종목은 종목명에 특정 표식이 붙거나 DB에서 별도 관리
+func isAdminStock(name string) bool {
+	// 관리종목 패턴: "관리" 또는 "*" 표시 등
+	adminPatterns := []string{"관리", "*"}
+	for _, pattern := range adminPatterns {
+		if strings.Contains(name, pattern) {
+			return true
+		}
+	}
+	return false
 }
