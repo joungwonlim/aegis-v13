@@ -221,14 +221,16 @@ snapshot, err := strategyconfig.NewDecisionSnapshot(cfg, yamlData, "test", "test
 
 | 항목 | 상태 | 비고 |
 |------|------|------|
-| YAML 파일 수정 | ⬜ | |
-| config.go 타입 | ⬜ | |
-| loader.go 함수 | ⬜ | |
-| validate.go 규칙 | ⬜ | |
-| config_test.go | ⬜ | |
-| 테스트 통과 | ⬜ | |
-| DB 마이그레이션 | ⬜ | |
-| 빌드 성공 | ⬜ | |
+| YAML 파일 수정 | ✅ | ADTV20=2e9, spread.formula 포함 |
+| config.go 타입 | ✅ | 310줄, 모든 타입/메서드 구현 |
+| loader.go 함수 | ✅ | Load, Hash, NewDecisionSnapshot |
+| validate.go 규칙 | ✅ | 25+ 검증 규칙, Warn 함수 |
+| config_test.go | ✅ | 7개 테스트 케이스 |
+| 테스트 통과 | ✅ | 6 passed, 1 skipped (경로 문제) |
+| DB 마이그레이션 | ✅ | 013_create_decision_snapshots.sql |
+| 빌드 성공 | ✅ | strategyconfig 패키지 빌드 OK |
+
+> 검증일: 2026-01-10
 
 ---
 
