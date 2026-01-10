@@ -60,6 +60,7 @@ var (
 - investor_flow: 매일 오후 5시 (투자자 수급)
 - disclosure_collection: 6시간마다 (공시 데이터)
 - universe_generation: 매일 오후 6시 (Universe 생성)
+- forecast_pipeline: 매일 오후 6시 30분 (이벤트 감지/예측)
 - cache_cleanup: 5분마다 (캐시 정리)
 
 스케줄러는 Ctrl+C로 종료할 수 있습니다.`,
@@ -237,10 +238,11 @@ func initScheduler() (*scheduler.Scheduler, error) {
 	qualityGate := quality.NewQualityGate(db.Pool, qualityConfig)
 
 	// 9. Create universe builder
+	// Note: MinMarketCap은 억 단위, MinVolume은 백만 단위로 지정
 	universeConfig := s1_universe.Config{
-		MinMarketCap:   10_000_000_000, // 100억 원
-		MinVolume:      100_000_000,    // 1억 원
-		MinListingDays: 20,             // 20일
+		MinMarketCap:   100, // 100억 원 (억 단위)
+		MinVolume:      100, // 1억 원 (백만 단위)
+		MinListingDays: 20,  // 20일
 		ExcludeAdmin:   true,
 		ExcludeHalt:    true,
 		ExcludeSPAC:    true,
@@ -259,6 +261,7 @@ func initScheduler() (*scheduler.Scheduler, error) {
 	sched.AddJob(jobs.NewInvestorFlowJob(col, cfg, log))
 	sched.AddJob(jobs.NewDisclosureJob(col, log))
 	sched.AddJob(jobs.NewUniverseJob(universeBuilder, qualityGate, log))
+	sched.AddJob(jobs.NewForecastJob(db.Pool, log))
 	sched.AddJob(jobs.NewCacheCleanupJob(priceCache, log))
 
 	return sched, nil

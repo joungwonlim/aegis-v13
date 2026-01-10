@@ -68,6 +68,8 @@ type KISConfig struct {
 	AppSecret string
 	AccountNo string
 	BaseURL   string
+	IsVirtual bool   // 모의투자 여부
+	HtsID     string // HTS ID (체결통보 구독용)
 }
 
 // DARTConfig holds DART (전자공시) API configuration
@@ -123,6 +125,8 @@ func Load() (*Config, error) {
 			AppSecret: getEnv("KIS_APP_SECRET", ""),
 			AccountNo: getEnv("KIS_ACCOUNT_NO", ""),
 			BaseURL:   getEnv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443"),
+			IsVirtual: getEnvAsBool("KIS_IS_VIRTUAL", false),
+			HtsID:     getEnv("KIS_HTS_ID", ""),
 		},
 
 		DART: DARTConfig{

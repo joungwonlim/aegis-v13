@@ -176,6 +176,67 @@ go run ./cmd/quant forecast predict --code 005930
 
 ---
 
+## 스케줄러 등록
+
+Forecast 파이프라인은 스케줄러에 `forecast_pipeline` 작업으로 등록되어 있습니다.
+
+### 스케줄
+
+| 작업명 | 실행 시간 | 설명 |
+|--------|----------|------|
+| `forecast_pipeline` | **매일 18:30** | Universe 생성 후 실행 |
+
+### 실행 순서
+
+```
+16:00 - data_collection (데이터 수집)
+17:00 - investor_flow (투자자 수급)
+18:00 - universe_generation (Universe 생성)
+18:30 - forecast_pipeline (이벤트 감지/예측) ⭐
+```
+
+### 스케줄러 명령어
+
+```bash
+# 스케줄러 시작 (모든 작업 등록)
+go run ./cmd/quant scheduler start
+
+# 등록된 작업 목록 확인
+go run ./cmd/quant scheduler list
+
+# forecast_pipeline 즉시 실행
+go run ./cmd/quant scheduler run forecast_pipeline
+
+# 작업 상태 확인
+go run ./cmd/quant scheduler status
+```
+
+### Job 구현
+
+```go
+// internal/scheduler/jobs/forecast.go
+type ForecastJob struct {
+    pool   *pgxpool.Pool
+    logger *logger.Logger
+}
+
+func (j *ForecastJob) Name() string {
+    return "forecast_pipeline"
+}
+
+func (j *ForecastJob) Schedule() string {
+    return "0 30 18 * * *"  // 매일 18:30
+}
+
+func (j *ForecastJob) Run(ctx context.Context) error {
+    // 1. Event Detection
+    // 2. Fill Forward Performance
+    // 3. Aggregate Statistics
+}
+```
+
+---
+
 ## DB 스키마
 
 ### analytics.forecast_events

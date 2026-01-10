@@ -160,5 +160,76 @@ REDIS_ENABLED=false go test ./...
 
 ---
 
+## Scheduler
+
+### Overview
+
+스케줄러는 주기적인 작업들을 관리합니다.
+
+```
+internal/scheduler/
+├── scheduler.go      # 스케줄러 코어
+└── jobs/
+    ├── data_collection.go  # 데이터 수집
+    ├── maintenance.go      # 캐시 정리
+    ├── universe.go         # Universe 생성
+    └── forecast.go         # Forecast 파이프라인
+```
+
+### 등록된 작업
+
+| 작업 | 스케줄 | 설명 |
+|------|--------|------|
+| `data_collection` | 매일 16:00 | 전체 데이터 수집 |
+| `price_collection` | 평일 9-15시 매시간 | 가격 데이터 |
+| `investor_flow` | 매일 17:00 | 투자자 수급 |
+| `disclosure_collection` | 6시간마다 | 공시 데이터 |
+| `universe_generation` | 매일 18:00 | Universe 생성 |
+| `forecast_pipeline` | 매일 18:30 | 이벤트 감지/예측 |
+| `cache_cleanup` | 5분마다 | 캐시 정리 |
+
+### CLI 명령어
+
+```bash
+# 스케줄러 시작
+go run ./cmd/quant scheduler start
+
+# 작업 목록
+go run ./cmd/quant scheduler list
+
+# 특정 작업 즉시 실행
+go run ./cmd/quant scheduler run forecast_pipeline
+
+# 상태 확인
+go run ./cmd/quant scheduler status
+```
+
+### Job 인터페이스
+
+```go
+type Job interface {
+    Name() string                      // 작업 이름
+    Schedule() string                  // Cron 스케줄 (6자리)
+    Run(ctx context.Context) error     // 실행 로직
+}
+```
+
+### Cron 스케줄 형식
+
+```
+┌────────────── 초 (0-59)
+│ ┌──────────── 분 (0-59)
+│ │ ┌────────── 시 (0-23)
+│ │ │ ┌──────── 일 (1-31)
+│ │ │ │ ┌────── 월 (1-12)
+│ │ │ │ │ ┌──── 요일 (0-6, 0=일요일)
+│ │ │ │ │ │
+0 30 18 * * *   → 매일 18:30:00
+0 0 16 * * 1-5  → 평일 16:00:00
+0 */5 * * * *   → 5분마다
+```
+
+---
+
 **Prev**: [Audit Layer](./audit-layer.md)
 **Next**: [Frontend Folder Structure](../frontend/folder-structure.md)
