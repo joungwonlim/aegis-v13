@@ -145,6 +145,16 @@ go run ./cmd/quant backend start
 go run ./cmd/quant frontend start
 ```
 
+### 데이터 수집 및 파이프라인
+
+```bash
+# 1. 데이터 수집 (KIS, DART, Naver 전체)
+go run ./cmd/quant fetcher collect all
+
+# 2. 파이프라인 실행
+go run ./cmd/quant brain run
+```
+
 ### 프로덕션 빌드
 
 ```bash
@@ -190,7 +200,8 @@ aegis-v13/
 │   │   ├── selection/    # S3-S4
 │   │   ├── portfolio/    # S5
 │   │   ├── execution/    # S6
-│   │   └── audit/        # S7
+│   │   ├── audit/        # S7
+│   │   └── forecast/     # 이벤트 예측
 │   ├── pkg/              # 공용 패키지
 │   └── migrations/       # DB 마이그레이션
 │
@@ -208,7 +219,7 @@ aegis-v13/
 
 ## 자주 사용하는 명령어
 
-### Backend
+### Backend (make)
 
 ```bash
 make run          # 개발 서버 실행
@@ -217,6 +228,30 @@ make test         # 테스트
 make lint         # 린트
 make migrate-up   # 마이그레이션 적용
 make migrate-down # 마이그레이션 롤백
+```
+
+### Backend (CLI)
+
+```bash
+# 서버
+go run ./cmd/quant backend start   # API 서버 시작
+go run ./cmd/quant frontend start  # Next.js 서버 시작
+
+# 데이터 수집
+go run ./cmd/quant fetcher collect all   # 전체 수집
+go run ./cmd/quant fetcher collect kis   # KIS만
+
+# 파이프라인
+go run ./cmd/quant brain run             # 실행
+go run ./cmd/quant brain run --dry-run   # 계획만
+
+# 데이터베이스
+go run ./cmd/quant migrate up            # 마이그레이션 적용
+go run ./cmd/quant migrate status        # 상태 확인
+
+# Forecast
+go run ./cmd/quant forecast run --from 2024-01-01  # 전체 실행
+go run ./cmd/quant forecast predict --code 005930  # 예측 조회
 ```
 
 ### Frontend

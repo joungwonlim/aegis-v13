@@ -113,6 +113,41 @@ go run ./cmd/quant backend start
 go run ./cmd/quant frontend start
 ```
 
+**Database 관리**
+
+```bash
+# 마이그레이션 실행 (새 테이블/스키마 생성)
+go run ./cmd/quant migrate up
+
+# 마이그레이션 롤백 (최신 1개)
+go run ./cmd/quant migrate down
+
+# 마이그레이션 상태 확인
+go run ./cmd/quant migrate status
+
+# 특정 버전까지 마이그레이션
+go run ./cmd/quant migrate goto 20
+```
+
+**Forecast 모듈**
+
+```bash
+# 전체 실행 (detect → fill-forward → aggregate)
+go run ./cmd/quant forecast run --from 2024-01-01
+
+# 이벤트 감지만
+go run ./cmd/quant forecast detect --from 2024-01-01 --to 2024-12-31
+
+# 전방 성과 채우기
+go run ./cmd/quant forecast fill-forward
+
+# 통계 집계
+go run ./cmd/quant forecast aggregate
+
+# 특정 종목 예측 조회
+go run ./cmd/quant forecast predict --code 005930
+```
+
 #### 참고사항
 
 현재 `brain run`은 **재무 데이터 없이도** 작동하도록 설정되어 있습니다. 완전한 필터링을 위해서는:

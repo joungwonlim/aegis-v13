@@ -21,6 +21,7 @@ CREATE SCHEMA selection;  -- S3-S4: 스크리닝, 랭킹
 CREATE SCHEMA portfolio;  -- S5: 포트폴리오
 CREATE SCHEMA execution;  -- S6: 주문/체결
 CREATE SCHEMA audit;      -- S7: 성과 분석
+CREATE SCHEMA analytics;  -- 이벤트 예측 (Forecast)
 ```
 
 ---
@@ -84,6 +85,14 @@ CREATE SCHEMA audit;      -- S7: 성과 분석
 │  daily_pnl     performance_reports     attribution_analysis             │
 │                         │                                               │
 │                         └──────────▶ benchmark_data                     │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        analytics schema (3 tables)                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│  forecast_events ──────────▶ forward_performance                        │
+│         │                                                               │
+│         └──────────────────▶ forecast_stats                             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -585,6 +594,85 @@ CREATE TABLE audit.daily_pnl (
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 ```
+
+---
+
+## analytics 스키마
+
+> 이벤트 기반 예측 시스템 (Forecast 모듈)
+
+### forecast_events (이벤트 감지)
+
+```sql
+CREATE TABLE analytics.forecast_events (
+    id                BIGSERIAL PRIMARY KEY,
+    code              VARCHAR(20) NOT NULL,
+    event_date        DATE NOT NULL,
+    event_type        VARCHAR(20) NOT NULL,     -- E1_SURGE, E2_GAP_SURGE
+    day_return        NUMERIC(8,4),             -- 당일 수익률
+    close_to_high     NUMERIC(8,4),             -- 고가 대비 종가 (0~1)
+    gap_ratio         NUMERIC(8,4),             -- 갭 비율
+    volume_z_score    NUMERIC(8,2),             -- 거래량 z-score
+    sector            VARCHAR(50),
+    market_cap_bucket VARCHAR(10),              -- small/mid/large
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(code, event_date, event_type)
+);
+
+CREATE INDEX idx_forecast_events_code ON analytics.forecast_events(code);
+CREATE INDEX idx_forecast_events_date ON analytics.forecast_events(event_date);
+```
+
+### forward_performance (전방 성과)
+
+```sql
+CREATE TABLE analytics.forward_performance (
+    id              BIGSERIAL PRIMARY KEY,
+    event_id        BIGINT REFERENCES analytics.forecast_events(id),
+    fwd_ret_1d      NUMERIC(8,4),             -- t+1 수익률
+    fwd_ret_2d      NUMERIC(8,4),
+    fwd_ret_3d      NUMERIC(8,4),
+    fwd_ret_5d      NUMERIC(8,4),             -- t+5 수익률
+    max_runup_5d    NUMERIC(8,4),             -- 5일 최대 상승
+    max_drawdown_5d NUMERIC(8,4),             -- 5일 최대 하락
+    gap_hold_3d     BOOLEAN,                  -- 3일간 갭 유지
+    filled_at       TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(event_id)
+);
+```
+
+### forecast_stats (통계 집계)
+
+```sql
+CREATE TABLE analytics.forecast_stats (
+    id            BIGSERIAL PRIMARY KEY,
+    level         VARCHAR(10) NOT NULL,       -- SYMBOL/SECTOR/BUCKET/MARKET
+    key           VARCHAR(50) NOT NULL,       -- 종목코드/섹터명/버킷명/ALL
+    event_type    VARCHAR(20) NOT NULL,
+    sample_count  INT,
+    avg_ret_1d    NUMERIC(8,4),
+    avg_ret_2d    NUMERIC(8,4),
+    avg_ret_3d    NUMERIC(8,4),
+    avg_ret_5d    NUMERIC(8,4),
+    win_rate_1d   NUMERIC(5,4),               -- 1일 후 양수 비율
+    win_rate_5d   NUMERIC(5,4),               -- 5일 후 양수 비율
+    p10_mdd       NUMERIC(8,4),               -- 하위 10% MDD
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(level, key, event_type)
+);
+
+CREATE INDEX idx_forecast_stats_lookup ON analytics.forecast_stats(level, key, event_type);
+```
+
+**이벤트 타입**:
+- `E1_SURGE`: 급등 (dayReturn ≥ 3.5% AND closeToHigh ≥ 0.4)
+- `E2_GAP_SURGE`: 갭+급등 (E1 + gapRatio ≥ 1.5%)
+
+**4단계 폴백 계층**:
+1. `SYMBOL`: 해당 종목의 과거 이벤트 통계
+2. `SECTOR`: 같은 섹터 종목들의 통계
+3. `BUCKET`: 같은 시가총액 구간 (small/mid/large)
+4. `MARKET`: 전체 시장 평균
 
 ---
 
