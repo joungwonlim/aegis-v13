@@ -138,6 +138,25 @@ func (r *InvestorFlowRepository) Save(ctx, flow) error
 func (r *InvestorFlowRepository) SaveBatch(ctx, flows) error
 ```
 
+**DB 스키마** (`data.investor_flow`):
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `stock_code` | VARCHAR | 종목코드 |
+| `trade_date` | DATE | 거래일 |
+| `foreign_net_qty` | BIGINT | 외국인 순매수 (주식수) |
+| `foreign_net_value` | BIGINT | 외국인 순매수 (금액, 원) |
+| `inst_net_qty` | BIGINT | 기관 순매수 (주식수) |
+| `inst_net_value` | BIGINT | 기관 순매수 (금액, 원) |
+| `indiv_net_qty` | BIGINT | 개인 순매수 (주식수) |
+| `indiv_net_value` | BIGINT | 개인 순매수 (금액, 원) |
+
+> **주의**: API는 `*_net_qty` (주식수) 컬럼을 사용합니다. 프론트엔드 차트도 주식수 단위로 표시됩니다.
+
+**데이터 소스**:
+- v10 마이그레이션: 2022-01-03 ~ 2026-01-08 (약 244만 건)
+- Naver API: 최근 10일 실시간 수집
+
 ### FinancialRepository
 
 ```go

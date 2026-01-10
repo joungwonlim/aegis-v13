@@ -228,19 +228,12 @@ func (r *Repository) SaveInvestorFlow(ctx context.Context, flows []naver.Investo
 
 	query := `
 		INSERT INTO data.investor_flow (
-			stock_code, trade_date, foreign_net, institution_net, individual_net,
-			financial_net, insurance_net, trust_net, pension_net,
-			created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+			stock_code, trade_date, foreign_net_qty, inst_net_qty, indiv_net_qty
+		) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
-			foreign_net = EXCLUDED.foreign_net,
-			institution_net = EXCLUDED.institution_net,
-			individual_net = EXCLUDED.individual_net,
-			financial_net = EXCLUDED.financial_net,
-			insurance_net = EXCLUDED.insurance_net,
-			trust_net = EXCLUDED.trust_net,
-			pension_net = EXCLUDED.pension_net,
-			updated_at = NOW()
+			foreign_net_qty = EXCLUDED.foreign_net_qty,
+			inst_net_qty = EXCLUDED.inst_net_qty,
+			indiv_net_qty = EXCLUDED.indiv_net_qty
 	`
 
 	// Batch insert using transactions
@@ -253,7 +246,6 @@ func (r *Repository) SaveInvestorFlow(ctx context.Context, flows []naver.Investo
 	for _, f := range flows {
 		_, err := tx.Exec(ctx, query,
 			f.StockCode, f.TradeDate, f.ForeignNet, f.InstitutionNet, f.IndividualNet,
-			f.FinancialNet, f.InsuranceNet, f.TrustNet, f.PensionNet,
 		)
 		if err != nil {
 			return fmt.Errorf("insert investor flow for %s: %w", f.StockCode, err)

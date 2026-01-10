@@ -23,7 +23,7 @@ func NewInvestorFlowRepository(pool *pgxpool.Pool) *InvestorFlowRepository {
 // GetByCodeAndDate retrieves investor flow for a specific code and date
 func (r *InvestorFlowRepository) GetByCodeAndDate(ctx context.Context, code string, date time.Time) (*contracts.InvestorFlow, error) {
 	query := `
-		SELECT stock_code, trade_date, foreign_net_value, inst_net_value, indiv_net_value
+		SELECT stock_code, trade_date, foreign_net_qty, inst_net_qty, indiv_net_qty
 		FROM data.investor_flow
 		WHERE stock_code = $1 AND trade_date = $2
 	`
@@ -41,7 +41,7 @@ func (r *InvestorFlowRepository) GetByCodeAndDate(ctx context.Context, code stri
 // GetByCodeAndDateRange retrieves investor flows for a code within date range
 func (r *InvestorFlowRepository) GetByCodeAndDateRange(ctx context.Context, code string, from, to time.Time) ([]*contracts.InvestorFlow, error) {
 	query := `
-		SELECT stock_code, trade_date, foreign_net_value, inst_net_value, indiv_net_value
+		SELECT stock_code, trade_date, foreign_net_qty, inst_net_qty, indiv_net_qty
 		FROM data.investor_flow
 		WHERE stock_code = $1 AND trade_date BETWEEN $2 AND $3
 		ORDER BY trade_date ASC
@@ -67,12 +67,12 @@ func (r *InvestorFlowRepository) GetByCodeAndDateRange(ctx context.Context, code
 // Save saves a single investor flow record
 func (r *InvestorFlowRepository) Save(ctx context.Context, flow *contracts.InvestorFlow) error {
 	query := `
-		INSERT INTO data.investor_flow (stock_code, trade_date, foreign_net_value, inst_net_value, indiv_net_value)
+		INSERT INTO data.investor_flow (stock_code, trade_date, foreign_net_qty, inst_net_qty, indiv_net_qty)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
-			foreign_net_value = EXCLUDED.foreign_net_value,
-			inst_net_value = EXCLUDED.inst_net_value,
-			indiv_net_value = EXCLUDED.indiv_net_value
+			foreign_net_qty = EXCLUDED.foreign_net_qty,
+			inst_net_qty = EXCLUDED.inst_net_qty,
+			indiv_net_qty = EXCLUDED.indiv_net_qty
 	`
 
 	_, err := r.pool.Exec(ctx, query,

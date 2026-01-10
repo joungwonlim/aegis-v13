@@ -231,5 +231,47 @@ type Job interface {
 
 ---
 
+## Cleanup (정리 도구)
+
+### Overview
+
+데이터 정리 도구는 잘못된 데이터를 정리하는 CLI 명령어를 제공합니다.
+
+```
+cmd/quant/commands/
+└── cleanup.go      # 데이터 정리 명령어
+```
+
+### CLI 명령어
+
+```bash
+# 투자자 매매동향 데이터 정리
+go run ./cmd/quant cleanup investor-flow
+```
+
+### investor-flow 정리
+
+2025-12-24 이전의 투자자 매매동향 데이터는 금액(원) 단위로 저장되어 있어서,
+주식수 단위 데이터와 혼재되어 차트 표시에 문제가 있습니다.
+
+이 명령어는 2025-12-24 이전 데이터를 삭제합니다.
+
+```bash
+# 실행 예시
+$ go run ./cmd/quant cleanup investor-flow
+
+=== Investor Flow Data Cleanup ===
+📊 Found 12345 records with wrong units (before 2025-12-24)
+🗑️ Deleting old data...
+✅ Deleted 12345 records
+📊 Remaining records: 67890
+
+✅ Cleanup complete!
+```
+
+> **주의**: 이 명령어는 데이터를 **영구 삭제**합니다. 실행 전 백업을 권장합니다.
+
+---
+
 **Prev**: [Audit Layer](./audit-layer.md)
 **Next**: [Frontend Folder Structure](../frontend/folder-structure.md)
