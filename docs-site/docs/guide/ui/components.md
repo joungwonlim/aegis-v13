@@ -351,160 +351,504 @@ toast({ title: '주문 실패', variant: 'destructive' })
 
 ---
 
-## Watchlist (관심종목)
+## Watchlist (관심종목) - 모듈화 설계
 
-관심종목 테이블 컴포넌트입니다. 다크/라이트 테마 모두 지원합니다.
+관심종목 테이블 컴포넌트입니다. **code만 추가하면 자동으로 실시간 가격이 연동됩니다.**
 
-### 구조
+### 핵심 설계 원칙
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  관심종목                    [+ 종목 추가] [↻] [∧]          │
-├─────────────────────────────────────────────────────────────┤
-│  순번   종목명              현재가           전일대비       │
-├─────────────────────────────────────────────────────────────┤
-│  1     🔴 에이비프로바이오    211     ▲ 2 (+0.96%)     🗑   │
-│        195990                                               │
-├─────────────────────────────────────────────────────────────┤
-│  2     🔴 리튬포어스          916     ▼ 29 (-3.07%)    🗑   │
-│        073570                                               │
-└─────────────────────────────────────────────────────────────┘
+code만 입력 → 자동으로 name, logo, price, change 연동
 ```
 
-### 기본 사용
+| 데이터 | 소스 | 폴백 |
+|--------|------|------|
+| 종목명 | DB (stocks 테이블) | - |
+| 로고 | Naver (ssl.pstatic.net) | 이니셜 표시 |
+| 현재가 | KIS WebSocket → REST → Naver | 마지막 저장값 |
+| 전일대비 | KIS WebSocket → REST → Naver | 마지막 저장값 |
+
+### 상태 표시 (Dot Indicator)
+
+| 상태 | 색상 | 의미 |
+|------|------|------|
+| 🟢 녹색점 | `bg-green-500` | 포트폴리오 보유 종목 |
+| 🔴 빨간점 | `bg-red-500` | 자동청산 모니터링 중 |
+| (없음) | - | 관심종목만 (미보유) |
+
+### 간단 사용법
 
 ```tsx
-import { Watchlist } from '@/modules/watchlist/components/Watchlist'
+// ✅ code만 추가하면 나머지는 자동!
+const watchlistCodes = ['195990', '073570', '005930']
 
-const stocks = [
-  {
-    rank: 1,
-    code: '195990',
-    name: '에이비프로바이오',
-    logo: '/logos/195990.png',
-    price: 211,
-    change: 2,
-    changeRate: 0.96,
-  },
-  {
-    rank: 2,
-    code: '073570',
-    name: '리튬포어스',
-    logo: '/logos/073570.png',
-    price: 916,
-    change: -29,
-    changeRate: -3.07,
-  },
-]
-
-<Watchlist
-  stocks={stocks}
-  onAdd={() => openAddModal()}
-  onRefresh={() => refetchData()}
-  onDelete={(code) => removeStock(code)}
+<StockDataTable
+  codes={watchlistCodes}
+  holdingCodes={portfolioCodes}      // 녹색점
+  exitMonitoringCodes={exitCodes}    // 빨간점
 />
 ```
 
-### Props
+---
 
-| Prop | Type | Required | Description |
-|------|------|----------|-------------|
-| `stocks` | `WatchlistStock[]` | Yes | 종목 리스트 |
-| `onAdd` | `() => void` | No | 종목 추가 클릭 핸들러 |
-| `onRefresh` | `() => void` | No | 새로고침 클릭 핸들러 |
-| `onDelete` | `(code: string) => void` | No | 삭제 클릭 핸들러 |
-| `isCollapsible` | `boolean` | No | 접기/펼치기 기능 (기본: true) |
-| `className` | `string` | No | 추가 스타일 클래스 |
+## 모듈 구조
 
-### WatchlistStock Type
+```
+modules/
+├── price/
+│   ├── hooks/
+│   │   └── useRealtimePrices.ts   # 실시간 가격 Hook
+│   ├── providers/
+│   │   └── PriceProvider.tsx      # 가격 Context
+│   └── types.ts
+│
+├── stock/
+│   ├── components/
+│   │   ├── StockCell.tsx          # 종목명 + 로고 + 상태점
+│   │   ├── PriceCell.tsx          # 실시간 현재가
+│   │   ├── ChangeCell.tsx         # 실시간 전일대비
+│   │   └── StockDataTable.tsx     # 통합 테이블
+│   └── hooks/
+│       └── useStockInfo.ts        # 종목 정보 조회
+│
+└── watchlist/
+    ├── components/
+    │   └── WatchlistTable.tsx     # StockDataTable 래핑
+    └── hooks/
+        └── useWatchlist.ts        # 관심종목 CRUD
+```
+
+---
+
+## 1. useRealtimePrices (실시간 가격 Hook)
 
 ```tsx
-interface WatchlistStock {
-  rank: number           // 순번
-  code: string           // 종목코드 (6자리)
-  name: string           // 종목명
-  logo?: string          // 로고 이미지 URL
-  price: number          // 현재가
-  change: number         // 전일대비 (원)
-  changeRate: number     // 등락률 (%)
+// modules/price/hooks/useRealtimePrices.ts
+
+import { useQuery } from '@tanstack/react-query'
+
+interface RealtimePrice {
+  price: number
+  change: number
+  change_rate: number
+  volume: number
+  updated_at: string
+}
+
+/**
+ * 실시간 가격 조회 Hook
+ *
+ * 우선순위:
+ * 1. KIS WebSocket (실시간)
+ * 2. KIS REST API (폴백)
+ * 3. Naver Finance (백업)
+ */
+export function useRealtimePrices(
+  symbols: string[],
+  options?: { enabled?: boolean; refetchInterval?: number }
+) {
+  const { enabled = true, refetchInterval = 1000 } = options ?? {}
+
+  return useQuery({
+    queryKey: ['prices', 'realtime', symbols.sort().join(',')],
+    queryFn: async (): Promise<Record<string, RealtimePrice>> => {
+      if (symbols.length === 0) return {}
+
+      const res = await fetch(`/api/prices?symbols=${symbols.join(',')}`)
+      const data = await res.json()
+      return data.prices
+    },
+    enabled: enabled && symbols.length > 0,
+    staleTime: 500,
+    refetchInterval,
+    refetchIntervalInBackground: false,
+  })
 }
 ```
 
-### 종목 로고 URL
+### Backend API (가격 조회)
 
-네이버 증권에서 제공하는 SVG 로고를 사용합니다.
+```go
+// GET /api/prices?symbols=005930,195990
 
-```tsx
-// URL 패턴
-const getStockLogoUrl = (code: string) =>
-  `https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock${code}.svg`
+// 우선순위:
+// 1. KIS WebSocket 캐시 (메모리)
+// 2. KIS REST API
+// 3. Naver 크롤링 (백업)
 
-// 예시
-getStockLogoUrl('005930')  // 삼성전자
-// → https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock005930.svg
+func (h *PriceHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
+    symbols := strings.Split(r.URL.Query().Get("symbols"), ",")
 
-getStockLogoUrl('195990')  // 에이비프로바이오
-// → https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock195990.svg
+    prices := make(map[string]RealtimePrice)
+    for _, symbol := range symbols {
+        // 1. WebSocket 캐시 확인
+        if price, ok := h.wsCache.Get(symbol); ok {
+            prices[symbol] = price
+            continue
+        }
+
+        // 2. KIS REST API
+        price, err := h.kisClient.GetCurrentPrice(ctx, symbol)
+        if err == nil {
+            prices[symbol] = price
+            continue
+        }
+
+        // 3. Naver 백업
+        price, _ = h.naverClient.GetPrice(symbol)
+        prices[symbol] = price
+    }
+
+    json.NewEncoder(w).Encode(map[string]any{"prices": prices})
+}
 ```
 
-#### 사용 예시
+---
+
+## 2. StockCell (종목 셀)
 
 ```tsx
-const stocks = [
-  {
-    rank: 1,
-    code: '195990',
-    name: '에이비프로바이오',
-    logo: getStockLogoUrl('195990'),
-    price: 211,
-    change: 2,
-    changeRate: 0.96,
-  },
-  {
-    rank: 10,
-    code: '005930',
-    name: '삼성전자',
-    logo: getStockLogoUrl('005930'),
-    price: 139000,
-    change: 200,
-    changeRate: 0.14,
-  },
-]
-```
+// modules/stock/components/StockCell.tsx
 
-#### 로고 컴포넌트
-
-```tsx
-// modules/stock/components/StockLogo.tsx
-
-interface StockLogoProps {
+interface StockCellProps {
   code: string
-  name: string
+  name?: string           // 없으면 자동 조회
   size?: 'sm' | 'md' | 'lg'
-  className?: string
+  layout?: 'horizontal' | 'vertical'
+  isHolding?: boolean     // 🟢 녹색점
+  isExitMonitoring?: boolean  // 🔴 빨간점
+  onClick?: (stock: { code: string; name: string }) => void
 }
 
-const sizeMap = {
-  sm: 'h-6 w-6',
-  md: 'h-8 w-8',
-  lg: 'h-10 w-10',
+const sizeConfig = {
+  sm: { image: 'w-5 h-5', name: 'text-xs', code: 'text-[10px]' },
+  md: { image: 'w-6 h-6', name: 'text-sm', code: 'text-xs' },
+  lg: { image: 'w-8 h-8', name: 'text-base', code: 'text-sm' },
 }
 
-export function StockLogo({ code, name, size = 'md', className }: StockLogoProps) {
+export function StockCell({
+  code,
+  name,
+  size = 'md',
+  layout = 'vertical',
+  isHolding = false,
+  isExitMonitoring = false,
+  onClick,
+}: StockCellProps) {
+  const [imageError, setImageError] = useState(false)
+  const config = sizeConfig[size]
+  const displayName = name || code
+
+  // 네이버 로고 URL
   const logoUrl = `https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock${code}.svg`
 
   return (
-    <img
-      src={logoUrl}
-      alt={name}
-      className={cn(sizeMap[size], 'rounded-full', className)}
-      onError={(e) => {
-        // 로고 없을 경우 기본 아이콘으로 대체
-        e.currentTarget.src = '/icons/stock-default.svg'
+    <div
+      className={cn(
+        'flex items-center gap-2.5',
+        onClick && 'cursor-pointer hover:opacity-80 transition-opacity'
+      )}
+      onClick={() => onClick?.({ code, name: displayName })}
+    >
+      {/* 로고 */}
+      {!imageError ? (
+        <img
+          src={logoUrl}
+          alt={displayName}
+          className={cn(config.image, 'rounded-full object-cover flex-shrink-0')}
+          onError={() => setImageError(true)}
+        />
+      ) : (
+        <div className={cn(
+          config.image,
+          'rounded-full bg-muted flex items-center justify-center text-[10px] text-muted-foreground'
+        )}>
+          {displayName.charAt(0)}
+        </div>
+      )}
+
+      {/* 종목명 + 코드 */}
+      <div className="flex flex-col min-w-0">
+        <div className="flex items-center gap-1">
+          <span className={cn('font-medium truncate', config.name)}>
+            {displayName}
+          </span>
+          {/* 상태 점 표시 */}
+          {isHolding && (
+            <span
+              className={cn(
+                'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                isExitMonitoring ? 'bg-red-500' : 'bg-green-500'
+              )}
+              title={isExitMonitoring ? '자동청산 모니터링' : '보유 종목'}
+            />
+          )}
+        </div>
+        <span className={cn('text-muted-foreground truncate', config.code)}>
+          {code}
+        </span>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+## 3. PriceCell (현재가 셀)
+
+```tsx
+// modules/stock/components/PriceCell.tsx
+
+interface PriceCellProps {
+  code: string
+  fallbackPrice?: number
+  size?: 'sm' | 'md' | 'lg'
+}
+
+export function PriceCell({ code, fallbackPrice, size = 'md' }: PriceCellProps) {
+  const { data: prices } = useRealtimePrices([code], { refetchInterval: 1000 })
+
+  const price = prices?.[code]?.price ?? fallbackPrice ?? 0
+
+  if (price === 0) {
+    return <span className="text-muted-foreground">-</span>
+  }
+
+  return (
+    <span className={cn('font-mono font-medium', sizeConfig[size])}>
+      {price.toLocaleString('ko-KR')}
+    </span>
+  )
+}
+```
+
+---
+
+## 4. ChangeCell (전일대비 셀)
+
+```tsx
+// modules/stock/components/ChangeCell.tsx
+
+interface ChangeCellProps {
+  code: string
+  size?: 'sm' | 'md' | 'lg'
+  showIcon?: boolean
+}
+
+export function ChangeCell({ code, size = 'md', showIcon = true }: ChangeCellProps) {
+  const { data: prices } = useRealtimePrices([code], { refetchInterval: 1000 })
+
+  const price = prices?.[code]
+  const change = price?.change ?? 0
+  const changeRate = price?.change_rate ?? 0
+
+  if (change === 0 && changeRate === 0) {
+    return <span className="text-muted-foreground">-</span>
+  }
+
+  const isPositive = change >= 0
+  const icon = isPositive ? '▲' : '▼'
+
+  return (
+    <div className={cn(
+      'flex items-center justify-end gap-1 font-mono font-medium',
+      isPositive ? 'text-positive' : 'text-negative',
+      sizeConfig[size]
+    )}>
+      {showIcon && <span>{icon}</span>}
+      <span>
+        {Math.abs(change).toLocaleString()}
+        <span className="ml-1">
+          ({isPositive ? '+' : ''}{changeRate.toFixed(2)}%)
+        </span>
+      </span>
+    </div>
+  )
+}
+```
+
+---
+
+## 5. StockDataTable (통합 테이블)
+
+```tsx
+// modules/stock/components/StockDataTable.tsx
+
+interface StockDataTableProps {
+  codes: string[]                    // 종목코드 배열만 전달
+  holdingCodes?: Set<string>         // 🟢 녹색점 표시할 종목
+  exitMonitoringCodes?: Set<string>  // 🔴 빨간점 표시할 종목
+  showIndex?: boolean
+  onDelete?: (code: string) => void
+  emptyMessage?: string
+}
+
+export function StockDataTable({
+  codes,
+  holdingCodes = new Set(),
+  exitMonitoringCodes = new Set(),
+  showIndex = true,
+  onDelete,
+  emptyMessage = '종목이 없습니다',
+}: StockDataTableProps) {
+  // 종목 정보 일괄 조회 (name 등)
+  const { data: stockInfos } = useStockInfos(codes)
+
+  if (codes.length === 0) {
+    return <div className="py-12 text-center text-muted-foreground">{emptyMessage}</div>
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {showIndex && <TableHead className="w-12 text-center">순번</TableHead>}
+          <TableHead className="w-40">종목명</TableHead>
+          <TableHead className="text-right w-24">현재가</TableHead>
+          <TableHead className="text-right w-32">전일대비</TableHead>
+          {onDelete && <TableHead className="w-12" />}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {codes.map((code, index) => {
+          const info = stockInfos?.[code]
+          const isHolding = holdingCodes.has(code)
+          const isExitMonitoring = exitMonitoringCodes.has(code)
+
+          return (
+            <TableRow key={code}>
+              {showIndex && (
+                <TableCell className="text-center text-muted-foreground">
+                  {index + 1}
+                </TableCell>
+              )}
+              <TableCell>
+                <StockCell
+                  code={code}
+                  name={info?.name}
+                  size="sm"
+                  isHolding={isHolding}
+                  isExitMonitoring={isExitMonitoring}
+                />
+              </TableCell>
+              <TableCell className="text-right">
+                <PriceCell code={code} size="sm" />
+              </TableCell>
+              <TableCell className="text-right">
+                <ChangeCell code={code} size="sm" />
+              </TableCell>
+              {onDelete && (
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onDelete(code)}
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </TableCell>
+              )}
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+```
+
+---
+
+## 6. WatchlistTable (관심종목 테이블)
+
+```tsx
+// modules/watchlist/components/WatchlistTable.tsx
+
+interface WatchlistTableProps {
+  items: { id: number; stock_code: string }[]
+  onDelete?: (id: number) => void
+}
+
+export function WatchlistTable({ items, onDelete }: WatchlistTableProps) {
+  // 포트폴리오 보유 종목 조회
+  const { data: positions } = usePositions()
+
+  const holdingCodes = useMemo(() =>
+    new Set(positions?.map(p => p.stock_code) ?? []),
+    [positions]
+  )
+
+  const exitMonitoringCodes = useMemo(() =>
+    new Set(positions?.filter(p => p.exit_monitoring_enabled).map(p => p.stock_code) ?? []),
+    [positions]
+  )
+
+  const codes = items.map(item => item.stock_code)
+
+  return (
+    <StockDataTable
+      codes={codes}
+      holdingCodes={holdingCodes}
+      exitMonitoringCodes={exitMonitoringCodes}
+      onDelete={(code) => {
+        const item = items.find(i => i.stock_code === code)
+        if (item) onDelete?.(item.id)
       }}
     />
   )
 }
+```
+
+---
+
+## 사용 예시
+
+### 최소 코드로 관심종목 표시
+
+```tsx
+// 이것만 있으면 실시간 가격, 로고, 상태점 모두 자동!
+const codes = ['195990', '073570', '005930']
+
+<StockDataTable codes={codes} />
+```
+
+### 포트폴리오 연동
+
+```tsx
+const { data: portfolio } = usePortfolio()
+
+// 보유 종목은 녹색점, 자동청산은 빨간점
+<StockDataTable
+  codes={watchlistCodes}
+  holdingCodes={new Set(portfolio.positions.map(p => p.stock_code))}
+  exitMonitoringCodes={new Set(
+    portfolio.positions
+      .filter(p => p.exit_monitoring_enabled)
+      .map(p => p.stock_code)
+  )}
+/>
+```
+
+---
+
+## 가격 데이터 흐름
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Frontend   │────▶│  Backend    │────▶│  External   │
+│  (React)    │◀────│  (Go API)   │◀────│  (KIS/Naver)│
+└─────────────┘     └─────────────┘     └─────────────┘
+       │                   │                    │
+       │ useRealtimePrices │ GET /api/prices    │
+       │ (1초 polling)     │                    │
+       │                   │ 1. WS Cache ✓      │ KIS WebSocket
+       │                   │ 2. KIS REST        │ (실시간)
+       │                   │ 3. Naver Backup    │
+       │                   │                    │ Naver 크롤링
+       ▼                   ▼                    │ (백업)
+   PriceCell          priceCache               │
+   ChangeCell         (메모리)                  │
 ```
 
 ### 스타일 가이드
