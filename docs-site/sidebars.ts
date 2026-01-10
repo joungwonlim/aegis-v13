@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'guide/strategy/stock-selection',
+        'guide/strategy/exit-rules',
         'guide/strategy/implementation-spec',
         'guide/strategy/verification-checklist',
       ],
