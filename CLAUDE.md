@@ -4,6 +4,54 @@
 
 ---
 
+## 🚨 커밋 전 필수 체크리스트 (BLOCKER)
+
+**이 체크리스트를 건너뛰면 커밋 불가. 코드 작업 완료 후 반드시 실행.**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ⬜ 1. SSOT 확인: 파일이 올바른 위치에 있는가?              │
+│  ⬜ 2. 문서 생성/업데이트: docs-site/docs/guide/ 반영했는가?│
+│  ⬜ 3. 빌드 통과: go build ./... 성공?                      │
+│  ⬜ 4. GitHub Actions: 문서 커밋 시 배포 성공 확인했는가?   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 체크리스트 실행 방법
+
+```bash
+# 1. SSOT 확인
+ls -la internal/*/repository.go  # 레이어별 위치 확인
+
+# 2. 문서 확인 (새 기능이면 문서 필수)
+ls docs-site/docs/guide/backend/   # 백엔드 문서
+ls docs-site/docs/guide/strategy/  # 전략 문서
+cat docs-site/sidebars.ts          # 사이드바에 추가됐는지
+
+# 3. 빌드
+cd backend && go build ./...
+
+# 4. 커밋 & 푸시 후 Actions 확인
+gh run list --limit 1
+```
+
+### 문서 위치 매핑
+
+| 구현 내용 | 문서 위치 |
+|----------|----------|
+| S0-S1 데이터/유니버스 | `backend/data-layer.md` |
+| S2 시그널 | `backend/signals-layer.md` |
+| S3-S4 스크리닝/랭킹 | `backend/selection-layer.md` |
+| S5 포트폴리오 | `backend/portfolio-layer.md` |
+| S6 실행/청산 | `backend/execution-layer.md`, `strategy/exit-rules.md` |
+| S7 감사 | `backend/audit-layer.md` |
+| API | `api/*.md` |
+| DB | `database/schema-design.md` |
+
+**⚠️ 문서 없이 커밋 = 규칙 위반. 반드시 코드와 문서를 함께 커밋.**
+
+---
+
 ## v13 설계 철학 ⭐
 
 > **v10은 너무 복잡하고 비효율적이었다. v13은 명확·간결·효율을 추구한다.**

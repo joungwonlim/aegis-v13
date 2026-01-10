@@ -41,11 +41,15 @@ description: S0 Data Collection + S1 Universe
 internal/
 ├── s0_data/
 │   ├── collector/
-│   │   └── collector.go        # ✅ 데이터 수집 오케스트레이터
+│   │   └── collector.go              # ✅ 데이터 수집 오케스트레이터
 │   ├── quality/
-│   │   ├── validator.go        # ✅ 데이터 검증
-│   │   └── validator_test.go   # ✅ 테스트
-│   └── repository.go           # ✅ DB 저장
+│   │   ├── validator.go              # ✅ 데이터 검증
+│   │   └── validator_test.go         # ✅ 테스트
+│   ├── repository.go                 # ✅ 범용 DB 저장
+│   ├── price_repository.go           # ✅ 가격 Repository (contracts.PriceRepository 구현)
+│   ├── investor_flow_repository.go   # ✅ 수급 Repository (contracts.InvestorFlowRepository 구현)
+│   ├── financial_repository.go       # ✅ 재무 Repository (contracts.FinancialRepository 구현)
+│   └── disclosure_repository.go      # ✅ 공시 Repository (contracts.DisclosureRepository 구현)
 │
 ├── s1_universe/
 │   ├── builder.go              # ✅ Universe 생성
@@ -78,10 +82,122 @@ internal/
 - ✅ Repository에 SaveDisclosures, SaveMarketTrend 메서드 추가
 - ✅ 시가총액 수집 로직 추가 (Naver Ranking API 사용)
 - ✅ Repository에 SaveMarketCaps 메서드 추가
+- ✅ **Data Repositories 구현** (contracts 인터페이스 구현체)
+- ✅ **Universe Builder 보완** (SPAC, 관리종목 패턴 매칭)
 
 **TODO**:
 - `scheduler/` (스케줄러 - 일정 관리)
 - 종목 마스터 데이터 수집 로직
+
+---
+
+## Data Repositories (contracts 인터페이스 구현)
+
+Signal Layer에서 사용하는 데이터 조회용 Repository들입니다.
+
+### PriceRepository
+
+```go
+// internal/s0_data/price_repository.go
+// implements contracts.PriceRepository
+
+type PriceRepository struct {
+    pool *pgxpool.Pool
+}
+
+func NewPriceRepository(pool *pgxpool.Pool) *PriceRepository
+
+// 가격 조회
+func (r *PriceRepository) GetByCodeAndDate(ctx, code, date) (*contracts.Price, error)
+func (r *PriceRepository) GetByCodeAndDateRange(ctx, code, from, to) ([]*contracts.Price, error)
+func (r *PriceRepository) GetLatestByCode(ctx, code) (*contracts.Price, error)
+
+// 가격 저장
+func (r *PriceRepository) Save(ctx, price) error
+func (r *PriceRepository) SaveBatch(ctx, prices) error
+```
+
+### InvestorFlowRepository
+
+```go
+// internal/s0_data/investor_flow_repository.go
+// implements contracts.InvestorFlowRepository
+
+type InvestorFlowRepository struct {
+    pool *pgxpool.Pool
+}
+
+func NewInvestorFlowRepository(pool *pgxpool.Pool) *InvestorFlowRepository
+
+// 수급 조회
+func (r *InvestorFlowRepository) GetByCodeAndDate(ctx, code, date) (*contracts.InvestorFlow, error)
+func (r *InvestorFlowRepository) GetByCodeAndDateRange(ctx, code, from, to) ([]*contracts.InvestorFlow, error)
+
+// 수급 저장
+func (r *InvestorFlowRepository) Save(ctx, flow) error
+func (r *InvestorFlowRepository) SaveBatch(ctx, flows) error
+```
+
+### FinancialRepository
+
+```go
+// internal/s0_data/financial_repository.go
+// implements contracts.FinancialRepository
+
+type FinancialRepository struct {
+    pool *pgxpool.Pool
+}
+
+func NewFinancialRepository(pool *pgxpool.Pool) *FinancialRepository
+
+// 재무 조회
+func (r *FinancialRepository) GetLatestByCode(ctx, code, date) (*contracts.Financial, error)
+func (r *FinancialRepository) GetByCodeAndQuarter(ctx, code, year, quarter) (*contracts.Financial, error)
+
+// 재무 저장
+func (r *FinancialRepository) Save(ctx, financial) error
+func (r *FinancialRepository) SaveBatch(ctx, financials) error
+```
+
+### DisclosureRepository
+
+```go
+// internal/s0_data/disclosure_repository.go
+// implements contracts.DisclosureRepository
+
+type DisclosureRepository struct {
+    pool *pgxpool.Pool
+}
+
+func NewDisclosureRepository(pool *pgxpool.Pool) *DisclosureRepository
+
+// 공시 조회
+func (r *DisclosureRepository) GetByCodeAndDateRange(ctx, code, from, to) ([]*contracts.Disclosure, error)
+func (r *DisclosureRepository) GetLatestByCode(ctx, code, limit) ([]*contracts.Disclosure, error)
+
+// 공시 저장
+func (r *DisclosureRepository) Save(ctx, disclosure) error
+func (r *DisclosureRepository) SaveBatch(ctx, disclosures) error
+```
+
+### Brain Orchestrator 연결
+
+```go
+// cmd/quant/commands/brain.go
+
+// Repository 생성
+priceRepo := s0_data.NewPriceRepository(db.Pool)
+flowRepo := s0_data.NewInvestorFlowRepository(db.Pool)
+financialRepo := s0_data.NewFinancialRepository(db.Pool)
+disclosureRepo := s0_data.NewDisclosureRepository(db.Pool)
+
+// Signal Builder에 주입
+signalBuilder := s2_signals.NewBuilder(
+    momentumCalc, technicalCalc, valueCalc, qualityCalc, flowCalc, eventCalc,
+    priceRepo, flowRepo, financialRepo, disclosureRepo,
+    log,
+)
+```
 
 ---
 
@@ -513,7 +629,29 @@ func (b *Builder) checkExclusion(stock Stock) string {
 
     return "" // 통과
 }
+
+// SPAC 판별 (이름 패턴 매칭)
+var spacPattern = regexp.MustCompile(`(?i)(스팩|SPAC|스펙|\d+호$|제\d+호)`)
+
+func isSPAC(name string) bool {
+    return spacPattern.MatchString(name)
+}
+
+// 관리종목 판별 (이름 패턴 매칭)
+func isAdminStock(name string) bool {
+    adminPatterns := []string{"관리", "*"}
+    for _, pattern := range adminPatterns {
+        if strings.Contains(name, pattern) {
+            return true
+        }
+    }
+    return false
+}
 ```
+
+**SPAC/관리종목 판별 로직** (2026-01-10 추가):
+- **SPAC**: `스팩`, `SPAC`, `스펙`, `1호`, `제1호` 등 패턴 매칭
+- **관리종목**: 종목명에 `관리` 또는 `*` 포함 여부
 
 **테스트 결과** (2026-01-08 기준):
 - 투자 가능 유니버스: **911종목** ✅
