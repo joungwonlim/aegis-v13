@@ -115,19 +115,21 @@ func (c *Client) FetchAllMarketCaps(ctx context.Context, market string) ([]Marke
 
 // parseMarketCapData parses RankingStockItem into MarketCapData
 func parseMarketCapData(item RankingStockItem) (*MarketCapData, error) {
-	// Parse market cap (remove commas)
+	// Parse market cap (remove commas, handle decimal point)
 	marketCapStr := strings.ReplaceAll(item.MarketSum, ",", "")
-	marketCap, err := strconv.ParseInt(marketCapStr, 10, 64)
+	marketCapFloat, err := strconv.ParseFloat(marketCapStr, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parse market cap: %w", err)
 	}
+	marketCap := int64(marketCapFloat)
 
-	// Parse shares outstanding
+	// Parse shares outstanding (remove commas, handle decimal point)
 	sharesStr := strings.ReplaceAll(item.ListedStockCnt, ",", "")
-	shares, err := strconv.ParseInt(sharesStr, 10, 64)
+	sharesFloat, err := strconv.ParseFloat(sharesStr, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parse shares outstanding: %w", err)
 	}
+	shares := int64(sharesFloat)
 
 	return &MarketCapData{
 		StockCode:         item.ItemCode,
