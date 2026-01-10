@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/wonny/aegis/v13/backend/internal/audit"
 	"github.com/wonny/aegis/v13/backend/internal/brain"
+	"github.com/wonny/aegis/v13/backend/internal/contracts"
 	"github.com/wonny/aegis/v13/backend/internal/execution"
 	"github.com/wonny/aegis/v13/backend/internal/external/dart"
 	"github.com/wonny/aegis/v13/backend/internal/external/krx"
@@ -164,7 +164,7 @@ func initOrchestrator() (*brain.Orchestrator, error) {
 	// 6. Create repositories
 	dataRepo := s0_data.NewRepository(db.Pool)
 	universeRepo := s1_universe.NewRepository(db.Pool)
-	signalRepo := s2_signals.NewRepository(db.Pool)
+	signalRepo := s2_signals.NewSignalRepository(db.Pool)
 	selectionRepo := selection.NewRepository(db.Pool)
 	portfolioRepo := portfolio.NewRepository(db.Pool)
 	executionRepo := execution.NewRepository(db.Pool)
@@ -194,29 +194,34 @@ func initOrchestrator() (*brain.Orchestrator, error) {
 	universeBuilder := s1_universe.NewBuilder(db.Pool, universeConfig)
 
 	// 9. Create S2: Signal Builder
-	col := collector.NewCollector(naverClient, dartClient, krxClient, dataRepo, log)
-	// TODO: Initialize all signal calculators
+	// Note: col is created but not used directly in brain orchestrator
+	// It's used by individual data collection commands
+	_ = collector.NewCollector(naverClient, dartClient, krxClient, dataRepo, log)
+	// TODO: Initialize all signal calculators and proper repositories
 	signalBuilder := s2_signals.NewBuilder(
-		nil, // momentum
-		nil, // technical
-		nil, // value
-		nil, // quality
-		nil, // flow
-		nil, // event
-		dataRepo,
-		dataRepo,
-		dataRepo,
-		dataRepo,
+		nil, // momentum (TODO)
+		nil, // technical (TODO)
+		nil, // value (TODO)
+		nil, // quality (TODO)
+		nil, // flow (TODO)
+		nil, // event (TODO)
+		nil, // priceRepo (TODO: implement contracts.PriceRepository)
+		nil, // flowRepo (TODO: implement contracts.InvestorFlowRepository)
+		nil, // financialRepo (TODO: implement contracts.FinancialRepository)
+		nil, // disclosureRepo (TODO: implement contracts.DisclosureRepository)
 		log,
 	)
 
 	// 10. Create S3: Screener
 	screenerConfig := selection.ScreenerConfig{
-		MinMomentum:  -0.5,
-		MinTechnical: -0.5,
-		MinValue:     -0.5,
-		MinQuality:   -0.5,
-		MinFlow:      -0.5,
+		MinMomentum:             -0.5,
+		MinTechnical:            -0.5,
+		MaxPER:                  50,
+		MinPBR:                  0.2,
+		MinROE:                  5,
+		MaxDebtRatio:            200,
+		MinFlow:                 -0.5,
+		ExcludeNegativeEarnings: true,
 	}
 	screener := selection.NewScreener(screenerConfig, log)
 
@@ -225,27 +230,28 @@ func initOrchestrator() (*brain.Orchestrator, error) {
 	ranker := selection.NewRanker(weights, log)
 
 	// 12. Create S5: Portfolio Constructor
-	portfolioConfig := portfolio.Config{
-		MaxPositions:   20,
-		MaxWeight:      0.15,
-		MinWeight:      0.03,
-		CashReserve:    0.05,
-		WeightingMode:  "equal",
-		TurnoverLimit:  1.0,
+	portfolioConfig := portfolio.PortfolioConfig{
+		MaxPositions:  20,
+		MaxWeight:     0.15,
+		MinWeight:     0.03,
+		CashReserve:   0.05,
+		WeightingMode: "equal",
+		TurnoverLimit: 1.0,
 	}
-	portfolioConstructor := portfolio.NewConstructor(portfolioConfig, log)
+	portfolioConstraints := portfolio.DefaultConstraints()
+	portfolioConstructor := portfolio.NewConstructor(portfolioConfig, portfolioConstraints, log)
 
 	// 13. Create S6: Execution Planner
-	executionConfig := execution.Config{
-		DefaultOrderType:  "limit",
-		DefaultSlippage:   0.001,
-		SplitThreshold:    50_000_000,
-		MaxOrderSize:      50_000_000,
+	executionConfig := execution.ExecutionConfig{
+		OrderType:      contracts.OrderTypeLimit,
+		SlippageBps:    10, // 0.1%
+		SplitThreshold: 50_000_000,
+		MaxOrderSize:   50_000_000,
 	}
-	executionPlanner := execution.NewPlanner(executionConfig, log)
+	executionPlanner := execution.NewPlanner(nil, executionConfig, log) // nil broker for dry run
 
 	// 14. Create S7: Performance Analyzer
-	performanceAnalyzer := audit.NewPerformanceAnalyzer(db.Pool, log)
+	performanceAnalyzer := audit.NewAnalyzer(auditRepo, log)
 
 	// 15. Create Orchestrator
 	orchestrator := brain.NewOrchestrator(
@@ -305,9 +311,9 @@ func printRunResult(result *brain.RunResult) {
 			result.RankedStocks[0].TotalScore)
 	}
 	if result.TargetPortfolio != nil {
-		fmt.Printf("Portfolio: %d positions, %.0f원\n",
+		fmt.Printf("Portfolio: %d positions, cash=%.1f%%\n",
 			len(result.TargetPortfolio.Positions),
-			float64(result.TargetPortfolio.TotalValue))
+			result.TargetPortfolio.Cash*100)
 	}
 	if result.ExecutionPlan != nil {
 		fmt.Printf("Execution: %d orders\n", len(result.ExecutionPlan.Orders))
@@ -315,7 +321,7 @@ func printRunResult(result *brain.RunResult) {
 	if result.PerformanceReport != nil {
 		fmt.Printf("Performance: Return=%.2f%%, Sharpe=%.2f, MDD=%.2f%%\n",
 			result.PerformanceReport.TotalReturn*100,
-			result.PerformanceReport.SharpeRatio,
+			result.PerformanceReport.Sharpe,
 			result.PerformanceReport.MaxDrawdown*100)
 	}
 }

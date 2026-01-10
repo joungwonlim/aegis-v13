@@ -39,3 +39,12 @@ func (pr *PerformanceReport) IsOutperforming() bool {
 func (pr *PerformanceReport) IsHealthy() bool {
 	return pr.Sharpe > 1.0 && pr.MaxDrawdown > -0.30 && pr.WinRate > 0.50
 }
+
+// FactorAttribution represents factor contribution in backtesting
+// ⭐ SSOT: 백테스트 팩터 기여도
+type FactorAttribution struct {
+	Factor       string  `json:"factor"`
+	Contribution float64 `json:"contribution"` // 수익 기여도
+	Exposure     float64 `json:"exposure"`     // 평균 노출도
+	ReturnPct    float64 `json:"return_pct"`   // 팩터 수익률
+}

@@ -26,13 +26,13 @@ type Orchestrator struct {
 	screener          *selection.Screener
 	ranker            *selection.Ranker
 	portfolioBuilder  *portfolio.Constructor
-	executionPlanner  *execution.Planner
-	performanceAnalyzer *audit.PerformanceAnalyzer
+	executionPlanner    *execution.Planner
+	performanceAnalyzer *audit.Analyzer
 
 	// Repositories for saving intermediate results
-	qualityRepo    *quality.Repository
-	universeRepo   *s1_universe.Repository
-	signalRepo     *s2_signals.Repository
+	qualityRepo  *quality.Repository
+	universeRepo *s1_universe.Repository
+	signalRepo   *s2_signals.SignalRepository
 	selectionRepo  *selection.Repository
 	portfolioRepo  *portfolio.Repository
 	executionRepo  *execution.Repository
@@ -67,7 +67,7 @@ type RunResult struct {
 	RankedStocks       []contracts.RankedStock
 	TargetPortfolio    *contracts.TargetPortfolio
 	ExecutionPlan      *contracts.ExecutionPlan
-	PerformanceReport  *contracts.PerformanceReport
+	PerformanceReport  *audit.PerformanceReport
 	Duration           time.Duration
 }
 
@@ -80,10 +80,10 @@ func NewOrchestrator(
 	ranker *selection.Ranker,
 	portfolioBuilder *portfolio.Constructor,
 	executionPlanner *execution.Planner,
-	performanceAnalyzer *audit.PerformanceAnalyzer,
+	performanceAnalyzer *audit.Analyzer,
 	qualityRepo *quality.Repository,
 	universeRepo *s1_universe.Repository,
-	signalRepo *s2_signals.Repository,
+	signalRepo *s2_signals.SignalRepository,
 	selectionRepo *selection.Repository,
 	portfolioRepo *portfolio.Repository,
 	executionRepo *execution.Repository,
@@ -226,7 +226,7 @@ func (o *Orchestrator) Run(ctx context.Context, config RunConfig) (*RunResult, e
 func (o *Orchestrator) runS0(ctx context.Context, config RunConfig) (*contracts.DataQualitySnapshot, error) {
 	o.logger.Info("Running S0: Data Quality Gate")
 
-	snapshot, err := o.qualityGate.Validate(ctx, config.Date)
+	snapshot, err := o.qualityGate.Check(ctx, config.Date)
 	if err != nil {
 		return nil, fmt.Errorf("quality gate validation: %w", err)
 	}
@@ -258,7 +258,7 @@ func (o *Orchestrator) runS1(ctx context.Context, config RunConfig, snapshot *co
 	}
 
 	// Save universe
-	if err := o.universeRepo.Save(ctx, universe); err != nil {
+	if err := o.universeRepo.SaveUniverse(ctx, universe); err != nil {
 		return nil, fmt.Errorf("save universe: %w", err)
 	}
 
@@ -280,7 +280,7 @@ func (o *Orchestrator) runS2(ctx context.Context, config RunConfig, universe *co
 	}
 
 	// Save signals
-	if err := o.signalRepo.SaveSignalSet(ctx, signalSet); err != nil {
+	if err := o.signalRepo.Save(ctx, signalSet); err != nil {
 		return nil, fmt.Errorf("save signal set: %w", err)
 	}
 
@@ -295,7 +295,7 @@ func (o *Orchestrator) runS2(ctx context.Context, config RunConfig, universe *co
 func (o *Orchestrator) runS3(ctx context.Context, config RunConfig, stocks []string, signals *contracts.SignalSet) ([]string, error) {
 	o.logger.Info("Running S3: Screening")
 
-	screened, err := o.screener.Screen(ctx, stocks, signals)
+	screened, err := o.screener.Screen(ctx, signals)
 	if err != nil {
 		return nil, fmt.Errorf("screening: %w", err)
 	}
@@ -318,7 +318,7 @@ func (o *Orchestrator) runS4(ctx context.Context, config RunConfig, stocks []str
 		}
 
 	// Save ranking results
-	if err := o.selectionRepo.SaveRanking(ctx, config.Date, ranked); err != nil {
+	if err := o.selectionRepo.SaveRankingResults(ctx, config.Date, ranked); err != nil {
 		return nil, fmt.Errorf("save ranking: %w", err)
 	}
 
@@ -335,27 +335,20 @@ func (o *Orchestrator) runS4(ctx context.Context, config RunConfig, stocks []str
 func (o *Orchestrator) runS5(ctx context.Context, config RunConfig, ranked []contracts.RankedStock, capital int64) (*contracts.TargetPortfolio, error) {
 	o.logger.Info("Running S5: Portfolio Construction")
 
-	// Get current portfolio
-	currentPortfolio, err := o.portfolioRepo.GetCurrent(ctx)
-	if err != nil && err.Error() != "no current portfolio" {
-		return nil, fmt.Errorf("get current portfolio: %w", err)
-	}
-
-	// Build target portfolio
-	targetPortfolio, err := o.portfolioBuilder.Build(ctx, ranked, currentPortfolio, capital)
+	// Build target portfolio using Constructor.Construct
+	targetPortfolio, err := o.portfolioBuilder.Construct(ctx, ranked)
 	if err != nil {
-		return nil, fmt.Errorf("portfolio build: %w", err)
+		return nil, fmt.Errorf("portfolio construct: %w", err)
 	}
 
 	// Save target portfolio
-	if err := o.portfolioRepo.SaveTarget(ctx, targetPortfolio); err != nil {
+	if err := o.portfolioRepo.SaveTargetPortfolio(ctx, targetPortfolio); err != nil {
 		return nil, fmt.Errorf("save target portfolio: %w", err)
 	}
 
 	o.logger.WithFields(map[string]interface{}{
-		"stocks":        len(targetPortfolio.Positions),
-		"total_value":   targetPortfolio.TotalValue,
-		"cash_reserve":  targetPortfolio.CashReserve,
+		"stocks":      len(targetPortfolio.Positions),
+		"cash_target": targetPortfolio.Cash,
 	}).Info("S5 completed")
 
 	return targetPortfolio, nil
@@ -365,21 +358,24 @@ func (o *Orchestrator) runS5(ctx context.Context, config RunConfig, ranked []con
 func (o *Orchestrator) runS6(ctx context.Context, config RunConfig, targetPortfolio *contracts.TargetPortfolio) (*contracts.ExecutionPlan, error) {
 	o.logger.Info("Running S6: Execution Planning")
 
-	// Get current positions
-	currentPositions, err := o.executionRepo.GetCurrentPositions(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get current positions: %w", err)
-	}
-
-	// Create execution plan
-	executionPlan, err := o.executionPlanner.CreatePlan(ctx, currentPositions, targetPortfolio)
+	// Create execution plan using Planner.Plan
+	orders, err := o.executionPlanner.Plan(ctx, targetPortfolio)
 	if err != nil {
 		return nil, fmt.Errorf("create execution plan: %w", err)
 	}
 
-	// Save execution plan
-	if err := o.executionRepo.SavePlan(ctx, executionPlan); err != nil {
-		return nil, fmt.Errorf("save execution plan: %w", err)
+	executionPlan := &contracts.ExecutionPlan{
+		ID:        fmt.Sprintf("plan_%s", config.RunID),
+		Date:      config.Date,
+		Orders:    orders,
+		CreatedAt: time.Now(),
+	}
+
+	// Save each order
+	for i := range executionPlan.Orders {
+		if err := o.executionRepo.SaveOrder(ctx, &executionPlan.Orders[i]); err != nil {
+			return nil, fmt.Errorf("save order: %w", err)
+		}
 	}
 
 	o.logger.WithFields(map[string]interface{}{
@@ -390,27 +386,24 @@ func (o *Orchestrator) runS6(ctx context.Context, config RunConfig, targetPortfo
 }
 
 // runS7 executes S7: Performance Analysis
-func (o *Orchestrator) runS7(ctx context.Context, config RunConfig) (*contracts.PerformanceReport, error) {
+func (o *Orchestrator) runS7(ctx context.Context, config RunConfig) (*audit.PerformanceReport, error) {
 	o.logger.Info("Running S7: Performance Analysis")
 
-	// Get portfolio history for analysis
-	from := config.Date.AddDate(0, -1, 0) // Last month
-	to := config.Date
-
-	report, err := o.performanceAnalyzer.Analyze(ctx, from, to)
+	// Analyze performance for the last month (period format: "1M")
+	report, err := o.performanceAnalyzer.Analyze(ctx, "1M")
 	if err != nil {
 		return nil, fmt.Errorf("performance analysis: %w", err)
 	}
 
 	// Save performance report
-	if err := o.auditRepo.SaveReport(ctx, report); err != nil {
+	if err := o.auditRepo.SavePerformanceReport(ctx, report); err != nil {
 		return nil, fmt.Errorf("save performance report: %w", err)
 	}
 
 	o.logger.WithFields(map[string]interface{}{
-		"return":       report.TotalReturn,
-		"sharpe_ratio": report.SharpeRatio,
-		"mdd":          report.MaxDrawdown,
+		"return": report.TotalReturn,
+		"sharpe": report.Sharpe,
+		"mdd":    report.MaxDrawdown,
 	}).Info("S7 completed")
 
 	return report, nil

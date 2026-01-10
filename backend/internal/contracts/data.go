@@ -10,6 +10,7 @@ type DataQualitySnapshot struct {
 	ValidStocks  int                `json:"valid_stocks"`
 	Coverage     map[string]float64 `json:"coverage"`      // 데이터별 커버리지
 	QualityScore float64            `json:"quality_score"` // 0.0 ~ 1.0
+	Passed       bool               `json:"passed"`        // 품질 검증 통과 여부
 }
 
 // IsValid checks if the data quality snapshot meets minimum requirements

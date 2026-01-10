@@ -101,35 +101,36 @@ func (s *Simulator) ExecutePlan(ctx context.Context, plan *contracts.ExecutionPl
 // executeOrder executes a single order
 func (s *Simulator) executeOrder(ctx context.Context, order contracts.Order, commissionRate, slippageRate float64) error {
 	// Get current price
-	price, err := s.getCurrentPrice(ctx, order.Code, order.SubmittedAt)
+	price, err := s.getCurrentPrice(ctx, order.Code, order.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("get current price: %w", err)
 	}
 
 	// Apply slippage
 	actualPrice := price
-	if order.Side == "buy" {
+	if order.Side == contracts.OrderSideBuy {
 		actualPrice = int64(float64(price) * (1.0 + slippageRate))
 	} else {
 		actualPrice = int64(float64(price) * (1.0 - slippageRate))
 	}
 
 	// Calculate values
-	totalValue := actualPrice * order.Quantity
+	qty := int64(order.Qty)
+	totalValue := actualPrice * qty
 	commission := int64(math.Ceil(float64(totalValue) * commissionRate))
-	slippageCost := int64(math.Abs(float64(actualPrice-price))) * order.Quantity
+	slippageCost := int64(math.Abs(float64(actualPrice-price))) * qty
 
 	trade := Trade{
 		Code:       order.Code,
-		Direction:  order.Side,
-		Shares:     order.Quantity,
+		Direction:  string(order.Side),
+		Shares:     qty,
 		Price:      actualPrice,
 		Value:      totalValue,
 		Commission: commission,
 		Slippage:   slippageCost,
 	}
 
-	if order.Side == "buy" {
+	if order.Side == contracts.OrderSideBuy {
 		// Buy order
 		totalCost := totalValue + commission
 		if s.cash < totalCost {
@@ -141,7 +142,7 @@ func (s *Simulator) executeOrder(ctx context.Context, order contracts.Order, com
 		// Update or create position
 		if pos, exists := s.positions[order.Code]; exists {
 			// Average down/up
-			newShares := pos.Shares + order.Quantity
+			newShares := pos.Shares + qty
 			newCost := pos.CostBasis + totalCost
 			pos.Shares = newShares
 			pos.CostBasis = newCost
@@ -149,7 +150,7 @@ func (s *Simulator) executeOrder(ctx context.Context, order contracts.Order, com
 		} else {
 			s.positions[order.Code] = &Position{
 				Code:      order.Code,
-				Shares:    order.Quantity,
+				Shares:    qty,
 				AvgPrice:  actualPrice,
 				CostBasis: totalCost,
 			}
@@ -164,13 +165,13 @@ func (s *Simulator) executeOrder(ctx context.Context, order contracts.Order, com
 			return fmt.Errorf("no position to sell: %s", order.Code)
 		}
 
-		if pos.Shares < order.Quantity {
-			return fmt.Errorf("insufficient shares: need %d, have %d", order.Quantity, pos.Shares)
+		if pos.Shares < qty {
+			return fmt.Errorf("insufficient shares: need %d, have %d", qty, pos.Shares)
 		}
 
 		// Calculate P&L
 		proceeds := totalValue - commission
-		costBasis := (pos.CostBasis * order.Quantity) / pos.Shares
+		costBasis := (pos.CostBasis * qty) / pos.Shares
 		pnl := proceeds - costBasis
 		returnPct := float64(pnl) / float64(costBasis)
 
@@ -181,7 +182,7 @@ func (s *Simulator) executeOrder(ctx context.Context, order contracts.Order, com
 		s.cash += proceeds
 
 		// Update position
-		pos.Shares -= order.Quantity
+		pos.Shares -= qty
 		pos.CostBasis -= costBasis
 
 		// Remove position if fully closed

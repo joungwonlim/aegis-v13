@@ -53,3 +53,39 @@ func (o *Order) IsMarketOrder() bool {
 func (o *Order) IsFilled() bool {
 	return o.Status == StatusFilled
 }
+
+// ExecutionPlan holds the execution orders for a trading session
+// ⭐ SSOT: S6 주문 실행 계획
+type ExecutionPlan struct {
+	ID        string    `json:"id"`
+	Date      time.Time `json:"date"`
+	Orders    []Order   `json:"orders"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// TotalOrders returns the number of orders in the plan
+func (p *ExecutionPlan) TotalOrders() int {
+	return len(p.Orders)
+}
+
+// BuyOrders returns only buy orders
+func (p *ExecutionPlan) BuyOrders() []Order {
+	var buys []Order
+	for _, o := range p.Orders {
+		if o.Side == OrderSideBuy {
+			buys = append(buys, o)
+		}
+	}
+	return buys
+}
+
+// SellOrders returns only sell orders
+func (p *ExecutionPlan) SellOrders() []Order {
+	var sells []Order
+	for _, o := range p.Orders {
+		if o.Side == OrderSideSell {
+			sells = append(sells, o)
+		}
+	}
+	return sells
+}
