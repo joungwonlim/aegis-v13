@@ -430,6 +430,83 @@ interface WatchlistStock {
 }
 ```
 
+### 종목 로고 URL
+
+네이버 증권에서 제공하는 SVG 로고를 사용합니다.
+
+```tsx
+// URL 패턴
+const getStockLogoUrl = (code: string) =>
+  `https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock${code}.svg`
+
+// 예시
+getStockLogoUrl('005930')  // 삼성전자
+// → https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock005930.svg
+
+getStockLogoUrl('195990')  // 에이비프로바이오
+// → https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock195990.svg
+```
+
+#### 사용 예시
+
+```tsx
+const stocks = [
+  {
+    rank: 1,
+    code: '195990',
+    name: '에이비프로바이오',
+    logo: getStockLogoUrl('195990'),
+    price: 211,
+    change: 2,
+    changeRate: 0.96,
+  },
+  {
+    rank: 10,
+    code: '005930',
+    name: '삼성전자',
+    logo: getStockLogoUrl('005930'),
+    price: 139000,
+    change: 200,
+    changeRate: 0.14,
+  },
+]
+```
+
+#### 로고 컴포넌트
+
+```tsx
+// modules/stock/components/StockLogo.tsx
+
+interface StockLogoProps {
+  code: string
+  name: string
+  size?: 'sm' | 'md' | 'lg'
+  className?: string
+}
+
+const sizeMap = {
+  sm: 'h-6 w-6',
+  md: 'h-8 w-8',
+  lg: 'h-10 w-10',
+}
+
+export function StockLogo({ code, name, size = 'md', className }: StockLogoProps) {
+  const logoUrl = `https://ssl.pstatic.net/imgstock/fn/real/logo/stock/Stock${code}.svg`
+
+  return (
+    <img
+      src={logoUrl}
+      alt={name}
+      className={cn(sizeMap[size], 'rounded-full', className)}
+      onError={(e) => {
+        // 로고 없을 경우 기본 아이콘으로 대체
+        e.currentTarget.src = '/icons/stock-default.svg'
+      }}
+    />
+  )
+}
+```
+
 ### 스타일 가이드
 
 #### 색상
