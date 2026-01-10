@@ -14,10 +14,18 @@ description: 기술 스택 소개
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Frontend** | Next.js 14+ | React 기반 UI |
-| **Backend** | Go 1.21+ | BFF API 서버 |
-| **Database** | PostgreSQL 15+ | 메인 데이터 저장소 |
-| **Cache** | Redis (optional) | 세션/캐시 |
+| **Frontend** | Next.js 14+ | React 기반 UI, shadcn/ui 컴포넌트 |
+| **Backend (API)** | Go 1.21+ | BFF API 서버, 인증/권한, 데이터 계약 |
+| **Backend (Worker)** | Go 1.21+ | 수집/지표/백테스트 등 장시간 작업 |
+| **Database** | PostgreSQL 15+ | 시계열/포지션/주문/스냅샷 저장 |
+| **Cache/Queue** | Redis | 캐시/레이트리밋/실시간 pub/sub |
+
+### 도입 검토 후 보류된 기술
+
+| 기술 | 보류 이유 |
+|------|----------|
+| **TimescaleDB** | 현재 데이터 규모(~수백만 rows)는 PostgreSQL로 충분. 1억 rows 이상 시 재검토 |
+| **OpenTelemetry** | zerolog 구조화 로깅으로 충분. 분산 트레이싱 필요 시 재검토 |
 
 ---
 
@@ -37,19 +45,36 @@ github.com/rs/zerolog         // 구조화 로깅
 github.com/go-playground/validator/v10  // 검증
 ```
 
-### BFF 패턴
+### 아키텍처
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Next.js   │────▶│   Go BFF    │────▶│ PostgreSQL  │
-│  (Client)   │     │  (Server)   │     │    (DB)     │
+│   Next.js   │────▶│   Go API    │────▶│ PostgreSQL  │
+│  (Client)   │     │   (BFF)     │     │    (DB)     │
 └─────────────┘     └─────────────┘     └─────────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │ External API│
-                    │ (KIS, DART) │
-                    └─────────────┘
+                           │                   ▲
+                           ▼                   │
+                    ┌─────────────┐     ┌─────────────┐
+                    │    Redis    │     │  Go Worker  │
+                    │(Cache/Queue)│     │ (장시간작업) │
+                    └─────────────┘     └─────────────┘
+                           │                   │
+                           └───────┬───────────┘
+                                   ▼
+                            ┌─────────────┐
+                            │ External API│
+                            │ (KIS, DART) │
+                            └─────────────┘
+```
+
+### Worker 프로세스
+
+```bash
+# API 서버 (HTTP 요청 처리)
+go run ./cmd/api
+
+# Worker (백그라운드 작업)
+go run ./cmd/quant brain run --date 2024-01-15
 ```
 
 ---
@@ -97,6 +122,34 @@ CREATE SCHEMA audit;      -- 성과 분석
 
 ---
 
+## Redis
+
+### 용도
+
+| 기능 | 설명 |
+|------|------|
+| **레이트 리밋** | 외부 API 호출 제한 (KIS 초당 5회 등) |
+| **캐시** | 시세/종목정보 캐싱으로 DB 부하 감소 |
+| **Pub/Sub** | 실시간 시세 WebSocket fanout |
+| **Job Queue** | 백그라운드 작업 큐 (선택적) |
+
+### 설치 (macOS)
+
+```bash
+# 설치
+brew install redis
+
+# 백그라운드 실행 (시작 시 자동 실행)
+brew services start redis
+
+# 상태 확인
+redis-cli ping  # PONG 응답
+
+# 메모리 사용량: ~2MB (idle)
+```
+
+---
+
 ## Development Tools
 
 | Tool | Purpose |
@@ -104,7 +157,22 @@ CREATE SCHEMA audit;      -- 성과 분석
 | `make` | 빌드/실행 자동화 |
 | `golangci-lint` | Go 린트 |
 | `pnpm` | 패키지 매니저 |
-| `docker-compose` | 로컬 DB 실행 |
+| `brew services` | PostgreSQL/Redis 로컬 실행 |
+
+### 로컬 환경 설정 (Docker 없이)
+
+```bash
+# PostgreSQL 설치 및 실행
+brew install postgresql@15
+brew services start postgresql@15
+
+# Redis 설치 및 실행
+brew install redis
+brew services start redis
+
+# 서비스 상태 확인
+brew services list
+```
 
 ---
 
