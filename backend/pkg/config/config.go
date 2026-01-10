@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -85,8 +86,8 @@ type NaverConfig struct {
 // Load reads configuration from environment variables
 // ⭐ SSOT: 이 함수만 os.Getenv()를 호출함
 func Load() (*Config, error) {
-	// Load .env file if exists (ignore error if not found)
-	_ = godotenv.Load()
+	// Try multiple paths for .env file
+	loadEnvFile()
 
 	cfg := &Config{
 		// Server
@@ -168,6 +169,32 @@ func (c *Config) validate() error {
 }
 
 // Helper functions (private, only used within this file)
+
+// loadEnvFile tries to load .env from multiple locations
+func loadEnvFile() {
+	// Try paths in order of priority
+	paths := []string{
+		".env",           // Current directory
+		"backend/.env",   // From project root
+	}
+
+	// Also try relative to executable
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		paths = append(paths,
+			filepath.Join(exeDir, ".env"),
+			filepath.Join(exeDir, "..", ".env"),
+			filepath.Join(exeDir, "..", "..", ".env"),
+		)
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			_ = godotenv.Load(path)
+			return
+		}
+	}
+}
 
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
