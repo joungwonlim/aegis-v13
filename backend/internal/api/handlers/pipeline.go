@@ -74,6 +74,7 @@ type RankedItem struct {
 	StockName    string  `json:"stockName"`
 	Market       string  `json:"market"`
 	Rank         int     `json:"rank"`
+	RankChange   int     `json:"rankChange"`
 	TotalScore   float64 `json:"totalScore"`
 	Momentum     float64 `json:"momentum"`
 	Technical    float64 `json:"technical"`
@@ -476,12 +477,20 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 				ON p1.stock_code = p2.stock_code
 				AND p2.trade_date = (SELECT MIN(trade_date) FROM price_dates)
 			WHERE p1.trade_date = (SELECT MAX(trade_date) FROM price_dates)
+		),
+		prev_ranking AS (
+			SELECT stock_code, rank as prev_rank
+			FROM selection.ranking_results
+			WHERE rank_date = (
+				SELECT MAX(rank_date) FROM selection.ranking_results WHERE rank_date < $1
+			)
 		)
 		SELECT
 			r.stock_code,
 			s.name as stock_name,
 			s.market,
 			r.rank,
+			COALESCE(pr.prev_rank - r.rank, 0) as rank_change,
 			r.total_score::float8,
 			COALESCE(r.momentum, 0)::float8,
 			COALESCE(r.technical, 0)::float8,
@@ -498,6 +507,7 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 		JOIN data.stocks s ON r.stock_code = s.code
 		JOIN latest_fundamentals lf ON r.stock_code = lf.stock_code
 		LEFT JOIN latest_prices lp ON r.stock_code = lp.stock_code
+		LEFT JOIN prev_ranking pr ON r.stock_code = pr.stock_code
 		WHERE r.rank_date = $1
 		  ` + marketFilter + `
 		  AND s.status = 'active'
@@ -524,6 +534,7 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 			&item.StockName,
 			&item.Market,
 			&item.Rank,
+			&item.RankChange,
 			&item.TotalScore,
 			&item.Momentum,
 			&item.Technical,
