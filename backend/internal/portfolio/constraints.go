@@ -17,11 +17,12 @@ func (c *Constraints) IsBlackListed(code string) bool {
 }
 
 // DefaultConstraints returns default constraint configuration
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio.allocation
 func DefaultConstraints() Constraints {
 	return Constraints{
-		MaxSectorWeight: 0.30, // 섹터당 최대 30%
-		MaxWeight:       0.15, // 종목당 최대 15%
-		MinWeight:       0.03, // 종목당 최소 3%
+		MaxSectorWeight: 0.25, // 섹터당 최대 25%
+		MaxWeight:       0.10, // 종목당 최대 10%
+		MinWeight:       0.04, // 종목당 최소 4%
 		BlackList:       []string{},
 	}
 }

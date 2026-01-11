@@ -25,16 +25,18 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) SaveOrder(ctx context.Context, order *contracts.Order) error {
 	query := `
 		INSERT INTO execution.orders (
-			order_id, code, name, side, quantity, price, order_type, status, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			order_id, stock_code, stock_name, order_date, order_action, order_type,
+			order_price, order_qty, status, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (order_id) DO UPDATE SET
 			status = EXCLUDED.status,
 			updated_at = EXCLUDED.updated_at
 	`
 
 	_, err := r.pool.Exec(ctx, query,
-		order.ID, order.Code, order.Name, order.Side, order.Qty, order.Price,
-		order.OrderType, order.Status, order.CreatedAt, order.UpdatedAt,
+		order.ID, order.Code, order.Name, order.CreatedAt.Truncate(24*time.Hour),
+		order.Side, order.OrderType, order.Price, order.Qty,
+		order.Status, order.CreatedAt, order.UpdatedAt,
 	)
 
 	if err != nil {
@@ -63,7 +65,8 @@ func (r *Repository) UpdateOrderStatus(ctx context.Context, orderID string, stat
 // GetOrder retrieves an order by ID
 func (r *Repository) GetOrder(ctx context.Context, orderID string) (*contracts.Order, error) {
 	query := `
-		SELECT order_id, code, name, side, quantity, price, order_type, status, created_at, updated_at
+		SELECT order_id, stock_code, stock_name, order_action, order_qty, order_price,
+		       order_type, status, created_at, updated_at
 		FROM execution.orders
 		WHERE order_id = $1
 	`
@@ -87,9 +90,10 @@ func (r *Repository) GetOrder(ctx context.Context, orderID string) (*contracts.O
 // GetOrdersByDate retrieves orders for a specific date
 func (r *Repository) GetOrdersByDate(ctx context.Context, date time.Time) ([]contracts.Order, error) {
 	query := `
-		SELECT order_id, code, name, side, quantity, price, order_type, status, created_at, updated_at
+		SELECT order_id, stock_code, stock_name, order_action, order_qty, order_price,
+		       order_type, status, created_at, updated_at
 		FROM execution.orders
-		WHERE DATE(created_at) = $1
+		WHERE order_date = $1
 		ORDER BY created_at ASC
 	`
 

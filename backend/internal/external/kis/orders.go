@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -40,7 +41,7 @@ func (c *Client) GetOrders(ctx context.Context, startDate, endDate string) ([]Or
 		trID = TRIDOrdersVirtual
 	}
 
-	accountNo := c.cfg.AccountNo
+	accountNo := strings.ReplaceAll(c.cfg.AccountNo, "-", "")
 	cano := accountNo[:8]
 	acntPrdtCd := accountNo[8:10]
 
@@ -148,7 +149,7 @@ func (c *Client) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (*PlaceO
 		}
 	}
 
-	accountNo := c.cfg.AccountNo
+	accountNo := strings.ReplaceAll(c.cfg.AccountNo, "-", "")
 	cano := accountNo[:8]
 	acntPrdtCd := accountNo[8:10]
 
@@ -231,7 +232,7 @@ func (c *Client) CancelOrder(ctx context.Context, orderNo string) (*PlaceOrderRe
 		trID = TRIDCancelVirtual
 	}
 
-	accountNo := c.cfg.AccountNo
+	accountNo := strings.ReplaceAll(c.cfg.AccountNo, "-", "")
 	cano := accountNo[:8]
 	acntPrdtCd := accountNo[8:10]
 

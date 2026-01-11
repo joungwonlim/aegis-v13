@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // TR IDs for balance queries
@@ -26,10 +27,10 @@ func (c *Client) GetBalance(ctx context.Context) (*Balance, []Position, error) {
 		trID = TRIDBalanceVirtual
 	}
 
-	// Account number format: first 8 digits + last 2 digits
-	accountNo := c.cfg.AccountNo
+	// Account number format: 12345678-01 or 1234567801
+	accountNo := strings.ReplaceAll(c.cfg.AccountNo, "-", "")
 	if len(accountNo) < 10 {
-		return nil, nil, fmt.Errorf("invalid account number format")
+		return nil, nil, fmt.Errorf("invalid account number format: %s", c.cfg.AccountNo)
 	}
 	cano := accountNo[:8]
 	acntPrdtCd := accountNo[8:10]
@@ -115,8 +116,14 @@ func parseIntSafe(s string) int64 {
 	if s == "" {
 		return 0
 	}
-	v, _ := strconv.ParseInt(s, 10, 64)
-	return v
+	// Try parsing as int first
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err == nil {
+		return v
+	}
+	// If failed (e.g. "90100.00"), try parsing as float and truncate
+	f, _ := strconv.ParseFloat(s, 64)
+	return int64(f)
 }
 
 func parseFloatSafe(s string) float64 {

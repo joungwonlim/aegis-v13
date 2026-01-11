@@ -17,8 +17,8 @@ func TestLoad(t *testing.T) {
 	}
 
 	// Check defaults
-	if cfg.Port != "8080" {
-		t.Errorf("Expected Port to be 8080, got %s", cfg.Port)
+	if cfg.Port != "8089" {
+		t.Errorf("Expected Port to be 8089, got %s", cfg.Port)
 	}
 
 	if cfg.Env != "development" {

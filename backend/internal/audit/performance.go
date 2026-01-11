@@ -67,8 +67,12 @@ func (a *Analyzer) Analyze(ctx context.Context, period string) (*PerformanceRepo
 		return nil, fmt.Errorf("failed to get daily returns: %w", err)
 	}
 
+	// 데이터가 없으면 빈 리포트 반환 (신규 시스템이라 데이터 없을 수 있음)
 	if len(dailyReturns) == 0 {
-		return nil, fmt.Errorf("no data for period %s", period)
+		a.logger.WithFields(map[string]interface{}{
+			"period": period,
+		}).Warn("No performance data available for period, returning empty report")
+		return report, nil
 	}
 
 	// 수익률 계산

@@ -130,6 +130,8 @@ type StockPrice struct {
 	ClosePrice float64   `json:"stck_clpr,string"`
 	Volume     int64     `json:"acml_vol,string"`
 	TradingVal int64     `json:"acml_tr_pbmn,string"`
+	Change     float64   `json:"prdy_vrss,string"`  // 전일 대비
+	ChangeRate float64   `json:"prdy_ctrt,string"`  // 전일 대비율
 	FetchedAt  time.Time `json:"-"`
 }
 
@@ -205,6 +207,8 @@ func (c *Client) GetCurrentPrice(ctx context.Context, stockCode string) (*StockP
 			ClosePrice string `json:"stck_prpr"`
 			Volume     string `json:"acml_vol"`
 			TradingVal string `json:"acml_tr_pbmn"`
+			Change     string `json:"prdy_vrss"`  // 전일 대비
+			ChangeRate string `json:"prdy_ctrt"`  // 전일 대비율
 		} `json:"output"`
 		RtCd  string `json:"rt_cd"`
 		MsgCd string `json:"msg_cd"`
@@ -232,6 +236,8 @@ func (c *Client) GetCurrentPrice(ctx context.Context, stockCode string) (*StockP
 	fmt.Sscanf(result.Output.ClosePrice, "%f", &price.ClosePrice)
 	fmt.Sscanf(result.Output.Volume, "%d", &price.Volume)
 	fmt.Sscanf(result.Output.TradingVal, "%d", &price.TradingVal)
+	fmt.Sscanf(result.Output.Change, "%f", &price.Change)
+	fmt.Sscanf(result.Output.ChangeRate, "%f", &price.ChangeRate)
 
 	return price, nil
 }

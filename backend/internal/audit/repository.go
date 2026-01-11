@@ -198,20 +198,33 @@ func (r *Repository) GetTrades(ctx context.Context, startDate, endDate time.Time
 
 // SavePerformanceReport saves performance report to database
 func (r *Repository) SavePerformanceReport(ctx context.Context, report *PerformanceReport) error {
-	reportDataJSON, err := json.Marshal(report)
-	if err != nil {
-		return fmt.Errorf("failed to marshal report: %w", err)
-	}
-
 	query := `
 		INSERT INTO audit.performance_reports (
-			period, start_date, end_date, total_return, sharpe, max_drawdown, win_rate, report_data
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			report_date, period_start, period_end, total_return, benchmark_return,
+			alpha, beta, sharpe_ratio, volatility, max_drawdown,
+			win_rate, avg_win, avg_loss, profit_factor
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (report_date) DO UPDATE SET
+			period_start = EXCLUDED.period_start,
+			period_end = EXCLUDED.period_end,
+			total_return = EXCLUDED.total_return,
+			benchmark_return = EXCLUDED.benchmark_return,
+			alpha = EXCLUDED.alpha,
+			beta = EXCLUDED.beta,
+			sharpe_ratio = EXCLUDED.sharpe_ratio,
+			volatility = EXCLUDED.volatility,
+			max_drawdown = EXCLUDED.max_drawdown,
+			win_rate = EXCLUDED.win_rate,
+			avg_win = EXCLUDED.avg_win,
+			avg_loss = EXCLUDED.avg_loss,
+			profit_factor = EXCLUDED.profit_factor
 	`
 
-	_, err = r.pool.Exec(ctx, query,
-		report.Period, report.StartDate, report.EndDate, report.TotalReturn,
-		report.Sharpe, report.MaxDrawdown, report.WinRate, reportDataJSON,
+	_, err := r.pool.Exec(ctx, query,
+		time.Now().Truncate(24*time.Hour), report.StartDate, report.EndDate,
+		report.TotalReturn, report.Benchmark, report.Alpha, report.Beta,
+		report.Sharpe, report.Volatility, report.MaxDrawdown,
+		report.WinRate, report.AvgWin, report.AvgLoss, report.ProfitFactor,
 	)
 
 	if err != nil {

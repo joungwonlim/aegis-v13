@@ -115,6 +115,11 @@ func (c *Client) PostForm(ctx context.Context, targetURL string, formData url.Va
 	return c.Post(ctx, targetURL, "application/x-www-form-urlencoded", strings.NewReader(formData.Encode()))
 }
 
+// Do executes a custom HTTP request with retry logic and logging
+func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return c.do(req)
+}
+
 // do executes the request with retry logic and logging
 func (c *Client) do(req *http.Request) (*http.Response, error) {
 	var resp *http.Response
