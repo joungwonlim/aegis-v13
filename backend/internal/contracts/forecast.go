@@ -125,3 +125,95 @@ func DefaultBayesianConfig() BayesianConfig {
 		MaxConfidence:  30,
 	}
 }
+
+// PredictionType 예측 유형
+type PredictionType string
+
+const (
+	PredictionEventBased PredictionType = "EVENT_BASED"
+	PredictionGeneral    PredictionType = "GENERAL"
+	PredictionNone       PredictionType = "NONE"
+)
+
+// QualityLevel 신뢰도 수준
+type QualityLevel string
+
+const (
+	QualityHigh    QualityLevel = "HIGH"
+	QualityMedium  QualityLevel = "MEDIUM"
+	QualityLow     QualityLevel = "LOW"
+	QualityUnknown QualityLevel = "UNKNOWN"
+)
+
+// EventCharacteristics 이벤트 특성
+type EventCharacteristics struct {
+	TradeDate    string  `json:"trade_date"`
+	Ret          float64 `json:"ret"`
+	Gap          float64 `json:"gap"`
+	CloseToHigh  float64 `json:"close_to_high"`
+	VolZ         float64 `json:"vol_z"`
+}
+
+// Prediction 예측 결과
+type Prediction struct {
+	ExpectedRet5D     float64  `json:"expected_ret_5d"`
+	WinRate5D         float64  `json:"win_rate_5d"`
+	P10MDD5D          float64  `json:"p10_mdd_5d"`
+	P90Runup5D        float64  `json:"p90_runup_5d"`
+	GapHoldWinRate    *float64 `json:"gap_hold_win_rate,omitempty"`
+	GapBreakWinRate   *float64 `json:"gap_break_win_rate,omitempty"`
+}
+
+// DailyGapStatus 일별 갭 상태
+type DailyGapStatus struct {
+	Day       int       `json:"day"`
+	TradeDate string    `json:"trade_date"`
+	Low       float64   `json:"low"`
+	IsHeld    bool      `json:"is_held"`
+}
+
+// GapMonitoring 갭 모니터링
+type GapMonitoring struct {
+	GapZoneLow   float64          `json:"gap_zone_low"`
+	DaysElapsed  int              `json:"days_elapsed"`
+	DailyStatus  []DailyGapStatus `json:"daily_status"`
+	IsConfirmed  bool             `json:"is_confirmed"`
+	FinalStatus  *bool            `json:"final_status,omitempty"`
+}
+
+// ForecastResult API 응답용 예측 분석 결과
+type ForecastResult struct {
+	Symbol         string                `json:"symbol"`
+	AnalyzedAt     string                `json:"analyzed_at"`
+	EventDetected  bool                  `json:"event_detected"`
+	EventType      string                `json:"event_type,omitempty"`
+	CurrentEvent   *EventCharacteristics `json:"current_event,omitempty"`
+	Prediction     *Prediction           `json:"prediction,omitempty"`
+	GapMonitoring  *GapMonitoring        `json:"gap_monitoring,omitempty"`
+	FallbackLevel  string                `json:"fallback_level"`
+	SampleSize     int                   `json:"sample_size"`
+	PredictionType PredictionType        `json:"prediction_type"`
+	Quality        QualityLevel          `json:"quality"`
+	Warnings       []string              `json:"warnings"`
+}
+
+// EventWithPerformance 성과 데이터를 포함한 이벤트
+type EventWithPerformance struct {
+	ID            int64              `json:"id"`
+	Symbol        string             `json:"symbol"`
+	TradeDate     string             `json:"trade_date"`
+	EventType     string             `json:"event_type"`
+	Ret           float64            `json:"ret"`
+	Gap           float64            `json:"gap"`
+	CloseToHigh   float64            `json:"close_to_high"`
+	VolZ          float64            `json:"vol_z"`
+	FwdRet1D      *float64           `json:"fwd_ret_1d,omitempty"`
+	FwdRet2D      *float64           `json:"fwd_ret_2d,omitempty"`
+	FwdRet3D      *float64           `json:"fwd_ret_3d,omitempty"`
+	FwdRet5D      *float64           `json:"fwd_ret_5d,omitempty"`
+	MaxRunup5D    *float64           `json:"max_runup_5d,omitempty"`
+	MaxDrawdown5D *float64           `json:"max_drawdown_5d,omitempty"`
+	GapHold3D     *bool              `json:"gap_hold_3d,omitempty"`
+	CreatedAt     string             `json:"created_at"`
+	UpdatedAt     string             `json:"updated_at"`
+}

@@ -163,6 +163,70 @@ func (r *Repository) GetEventsByCode(ctx context.Context, code string) ([]contra
 	return events, nil
 }
 
+// GetEventsByCodeWithPerformance 종목 코드로 이벤트와 전방 성과 함께 조회
+func (r *Repository) GetEventsByCodeWithPerformance(ctx context.Context, code string) ([]contracts.EventWithPerformance, error) {
+	query := `
+		SELECT
+			e.id, e.code, e.event_date, e.event_type, e.day_return, e.close_to_high,
+			e.gap_ratio, e.volume_z_score, e.created_at,
+			f.fwd_ret_1d, f.fwd_ret_2d, f.fwd_ret_3d, f.fwd_ret_5d,
+			f.max_runup_5d, f.max_drawdown_5d, f.gap_hold_3d
+		FROM analytics.forecast_events e
+		LEFT JOIN analytics.forward_performance f ON e.id = f.event_id
+		WHERE e.code = $1
+		ORDER BY e.event_date DESC`
+
+	rows, err := r.pool.Query(ctx, query, code)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []contracts.EventWithPerformance
+	for rows.Next() {
+		var e contracts.EventWithPerformance
+		var id int64
+		var code string
+		var eventDate time.Time
+		var eventType contracts.ForecastEventType
+		var dayReturn, closeToHigh, gapRatio, volZ float64
+		var createdAt time.Time
+		var fwdRet1D, fwdRet2D, fwdRet3D, fwdRet5D, maxRunup5D, maxDrawdown5D *float64
+		var gapHold3D *bool
+
+		if err := rows.Scan(
+			&id, &code, &eventDate, &eventType, &dayReturn, &closeToHigh,
+			&gapRatio, &volZ, &createdAt,
+			&fwdRet1D, &fwdRet2D, &fwdRet3D, &fwdRet5D,
+			&maxRunup5D, &maxDrawdown5D, &gapHold3D,
+		); err != nil {
+			return nil, err
+		}
+
+		e.ID = id
+		e.Symbol = code
+		e.TradeDate = eventDate.Format("2006-01-02")
+		e.EventType = string(eventType)
+		e.Ret = dayReturn
+		e.Gap = gapRatio
+		e.CloseToHigh = closeToHigh
+		e.VolZ = volZ
+		e.FwdRet1D = fwdRet1D
+		e.FwdRet2D = fwdRet2D
+		e.FwdRet3D = fwdRet3D
+		e.FwdRet5D = fwdRet5D
+		e.MaxRunup5D = maxRunup5D
+		e.MaxDrawdown5D = maxDrawdown5D
+		e.GapHold3D = gapHold3D
+		e.CreatedAt = createdAt.Format(time.RFC3339)
+		e.UpdatedAt = createdAt.Format(time.RFC3339)
+
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
 // GetEventsWithoutForward 전방 성과가 없는 이벤트 조회
 func (r *Repository) GetEventsWithoutForward(ctx context.Context) ([]contracts.ForecastEvent, error) {
 	query := `
