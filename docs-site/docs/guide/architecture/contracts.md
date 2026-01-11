@@ -86,9 +86,14 @@ type StockSignals struct {
 
 type SignalDetails struct {
     // Momentum
+    Return1D   float64 `json:"return_1d"`   // 1일 수익률 (Screener: drawdown)
+    Return5D   float64 `json:"return_5d"`   // 5일 수익률 (Screener: drawdown/overheat)
     Return1M   float64 `json:"return_1m"`
     Return3M   float64 `json:"return_3m"`
     VolumeRate float64 `json:"volume_rate"`
+
+    // Volatility
+    Volatility20D float64 `json:"volatility_20d"` // 20일 변동성 (Screener: volatility)
 
     // Technical
     RSI        float64 `json:"rsi"`

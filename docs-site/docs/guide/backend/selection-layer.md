@@ -153,35 +153,60 @@ type Screener interface {
 ```go
 // internal/selection/screener.go
 
-type screener struct {
+type Screener struct {
     config ScreenerConfig
+    logger *logger.Logger
 }
 
+// ScreenerConfig defines hard cut conditions
+// SSOT: config/strategy/korea_equity_v13.yaml screening
 type ScreenerConfig struct {
-    // 재무 Hard Cut 조건
-    MaxPER float64 `yaml:"max_per"`  // 50 (고평가 제외)
-    MinPER float64 `yaml:"min_per"`  // 0 (적자 제외)
-    MinPBR float64 `yaml:"min_pbr"`  // 0.2 (자산가치 필터)
-    MinROE float64 `yaml:"min_roe"`  // 5 (수익성 필터)
+    // Signal filters
+    MinMomentum  float64 // 모멘텀 최소값
+    MinTechnical float64 // 기술적 지표 최소값
+    MinFlow      float64 // 수급 점수 최소값
+
+    // Fundamentals (YAML: screening.fundamentals)
+    MaxPER                  float64 // per_max: 50
+    MinPBR                  float64 // pbr_min: 0.2
+    MinROE                  float64 // roe_min: 5
+    MaxDebtRatio            float64 // 부채비율 최대값
+    ExcludeNegativeEarnings bool    // 적자 기업 제외
+
+    // Drawdown (YAML: screening.drawdown)
+    MinReturn1D float64 // day1_return_min: -0.09 (-9%)
+    MinReturn5D float64 // day5_return_min: -0.18 (-18%)
+
+    // Overheat (YAML: screening.overheat)
+    EnableOverheat bool    // enable: true
+    MaxReturn5D    float64 // day5_return_max: 0.35 (35%)
+
+    // Volatility (YAML: screening.volatility)
+    EnableVolatility     bool    // enable: true
+    MaxVolatilityPercent float64 // vol20_exclude_top_pct: 0.10
 }
 
-func (s *screener) passAllConditions(fundamentals Fundamentals) bool {
-    // PER 필터: 적자/고평가 제외
-    if fundamentals.PER <= s.config.MinPER || fundamentals.PER > s.config.MaxPER {
-        return false
+// Screen applies hard cut filters
+func (s *Screener) Screen(ctx context.Context, signals *SignalSet) ([]string, error) {
+    passed := make([]string, 0)
+    filtered := make(map[string]int)
+
+    // Phase 1: Apply absolute filters
+    for code, signal := range signals.Signals {
+        reason := s.checkConditions(signal)
+        if reason == "" {
+            passed = append(passed, code)
+        } else {
+            filtered[reason]++
+        }
     }
 
-    // PBR 필터: 자산가치 부실 제외
-    if fundamentals.PBR < s.config.MinPBR {
-        return false
+    // Phase 2: Apply relative filter (volatility - top N% exclusion)
+    if s.config.EnableVolatility && len(passed) > 0 {
+        passed, filtered = s.applyVolatilityFilter(signals, passed, filtered)
     }
 
-    // ROE 필터: 수익성 부족 제외
-    if fundamentals.ROE < s.config.MinROE {
-        return false
-    }
-
-    return true
+    return passed, nil
 }
 ```
 

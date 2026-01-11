@@ -30,9 +30,14 @@ type StockSignals struct {
 // SignalDetails contains raw data behind signals
 type SignalDetails struct {
 	// Momentum
+	Return1D   float64 `json:"return_1d"`   // 1일 수익률 (Screener: drawdown)
+	Return5D   float64 `json:"return_5d"`   // 5일 수익률 (Screener: drawdown/overheat)
 	Return1M   float64 `json:"return_1m"`
 	Return3M   float64 `json:"return_3m"`
 	VolumeRate float64 `json:"volume_rate"`
+
+	// Volatility
+	Volatility20D float64 `json:"volatility_20d"` // 20일 변동성 (Screener: volatility)
 
 	// Technical
 	RSI       float64 `json:"rsi"`
@@ -75,14 +80,15 @@ func (s *SignalSet) Count() int {
 }
 
 // TotalScore calculates the total signal score for a stock
-// Weights: Momentum(0.25), Technical(0.20), Value(0.20), Quality(0.20), Flow(0.10), Event(0.05)
+// SSOT: config/strategy/korea_equity_v13.yaml ranking.weights_pct
+// Weights: Momentum(25%), Flow(20%), Technical(15%), Event(15%), Value(15%), Quality(10%)
 func (ss *StockSignals) TotalScore() float64 {
 	return ss.Momentum*0.25 +
-		ss.Technical*0.20 +
-		ss.Value*0.20 +
-		ss.Quality*0.20 +
-		ss.Flow*0.10 +
-		ss.Event*0.05
+		ss.Flow*0.20 +
+		ss.Technical*0.15 +
+		ss.Event*0.15 +
+		ss.Value*0.15 +
+		ss.Quality*0.10
 }
 
 // IsPositive checks if the overall signal is positive
