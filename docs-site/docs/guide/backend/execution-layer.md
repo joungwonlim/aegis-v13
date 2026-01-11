@@ -38,7 +38,17 @@ Qty = TargetValue / CurrentPrice
 | **Broker Interface** | ✅ 완료 | `internal/execution/broker.go` |
 | **ExecutionMonitor** | ✅ 완료 | `internal/execution/monitor.go` |
 | **Repository** | ✅ 완료 | `internal/execution/repository.go` |
+| **RiskGate (Phase B)** | ✅ 완료 | `internal/execution/risk_gate.go` |
 | KIS API 연동 | ⏳ TODO | `internal/external/kis/` |
+
+### 리스크 게이트 (Phase B)
+
+| 컴포넌트 | 상태 | 설명 |
+|---------|------|------|
+| **RiskGate** | ✅ 완료 | S6 사전 리스크 체크 |
+| **Shadow Mode** | ✅ 완료 | 차단 로깅 (would_block) |
+| **Gate CLI** | ✅ 완료 | `go run ./cmd/quant gate` |
+| **DB Migration** | ✅ 완료 | `migrations/026_risk_gate_events.sql` |
 
 :::tip YAML SSOT
 주문 설정과 슬리피지 모델은 `backend/config/strategy/korea_equity_v13.yaml`의 `execution` 섹션에서 관리됩니다.

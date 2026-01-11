@@ -247,3 +247,105 @@ type ExecutionSummary struct {
 	RejectedOrders int
 	CanceledOrders int
 }
+
+// =============================================================================
+// Risk Gate Events
+// =============================================================================
+
+// SaveGateEvent 리스크 게이트 이벤트 저장
+func (r *Repository) SaveGateEvent(ctx context.Context, event *GateEvent) error {
+	query := `
+		INSERT INTO execution.risk_gate_events (
+			run_id, mode, passed, would_block,
+			violation_count, var_95, var_99, message, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`
+
+	_, err := r.pool.Exec(ctx, query,
+		event.RunID, event.Mode, event.Passed, event.WouldBlock,
+		event.ViolationCount, event.VaR95, event.VaR99, event.Message, event.CreatedAt,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to save gate event: %w", err)
+	}
+
+	return nil
+}
+
+// GetGateEventsByDate 특정 날짜의 게이트 이벤트 조회
+func (r *Repository) GetGateEventsByDate(ctx context.Context, date time.Time) ([]GateEvent, error) {
+	query := `
+		SELECT id, run_id, mode, passed, would_block,
+		       violation_count, var_95, var_99, message, created_at
+		FROM execution.risk_gate_events
+		WHERE DATE(created_at) = $1
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.pool.Query(ctx, query, date)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query gate events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]GateEvent, 0)
+	for rows.Next() {
+		var event GateEvent
+		var mode string
+		err := rows.Scan(
+			&event.ID, &event.RunID, &mode, &event.Passed, &event.WouldBlock,
+			&event.ViolationCount, &event.VaR95, &event.VaR99, &event.Message, &event.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan gate event: %w", err)
+		}
+		event.Mode = GateMode(mode)
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+// GetShadowBlockStats Shadow 모드 차단 통계 조회
+func (r *Repository) GetShadowBlockStats(ctx context.Context, from, to time.Time) (*ShadowBlockStats, error) {
+	query := `
+		SELECT
+			COUNT(*) as total_checks,
+			COUNT(CASE WHEN would_block = true THEN 1 END) as would_block_count,
+			AVG(var_95) as avg_var_95,
+			MAX(var_95) as max_var_95
+		FROM execution.risk_gate_events
+		WHERE mode = 'shadow'
+		  AND created_at >= $1
+		  AND created_at < $2
+	`
+
+	var stats ShadowBlockStats
+	err := r.pool.QueryRow(ctx, query, from, to).Scan(
+		&stats.TotalChecks, &stats.WouldBlockCount, &stats.AvgVaR95, &stats.MaxVaR95,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get shadow block stats: %w", err)
+	}
+
+	stats.From = from
+	stats.To = to
+	if stats.TotalChecks > 0 {
+		stats.BlockRate = float64(stats.WouldBlockCount) / float64(stats.TotalChecks)
+	}
+
+	return &stats, nil
+}
+
+// ShadowBlockStats Shadow 모드 차단 통계
+type ShadowBlockStats struct {
+	From            time.Time
+	To              time.Time
+	TotalChecks     int
+	WouldBlockCount int
+	BlockRate       float64
+	AvgVaR95        float64
+	MaxVaR95        float64
+}

@@ -939,7 +939,7 @@ internal/portfolio/
 
 ## Phase 5: 실행 레이어 (S6)
 
-### 🔄 현재 상태 (2026-01-10)
+### ✅ 완료 상태 (2026-01-11)
 
 | 작업 | 상태 | 완료일 |
 |------|------|--------|
@@ -947,6 +947,9 @@ internal/portfolio/
 | Broker Interface | ✅ 완료 | 2026-01-10 |
 | Monitor | ✅ 완료 | 2026-01-10 |
 | Execution Repository | ✅ 완료 | 2026-01-10 |
+| **RiskGate (Phase B)** | ✅ 완료 | 2026-01-11 |
+| Shadow Mode | ✅ 완료 | 2026-01-11 |
+| Gate CLI | ✅ 완료 | 2026-01-11 |
 
 **완료된 것:**
 - ✅ `internal/execution/planner.go` - 주문 계획 (슬리피지, 분할)
@@ -954,6 +957,13 @@ internal/portfolio/
 - ✅ `internal/execution/monitor.go` - 체결 모니터링
 - ✅ `internal/execution/repository.go` - DB 저장
 - ✅ 기본값: 지정가, 0.1% 슬리피지, 5천만원 최대 주문
+
+**RiskGate (Phase B):**
+- ✅ `internal/execution/risk_gate.go` - S6 사전 리스크 게이트
+- ✅ Shadow Mode (로깅만, 실제 차단 안함)
+- ✅ would_block 로깅 (차단됐을지 여부 기록)
+- ✅ `migrations/026_risk_gate_events.sql` - DB 마이그레이션
+- ✅ `cmd/quant/commands/gate.go` - CLI 명령어 (status, test, stats)
 
 ### 목표
 주문 생성 및 실행
