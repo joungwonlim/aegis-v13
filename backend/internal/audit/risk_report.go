@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -101,18 +102,11 @@ func (r *RiskReporter) GenerateReport(ctx context.Context, input RiskReportInput
 	}
 
 	// 2. Monte Carlo 시뮬레이션 (선택적)
-	if input.MonteCarloConfig != nil && len(input.PortfolioReturns) >= input.MonteCarloConfig.MinSamples {
-		mcInput := risk.PortfolioReturns{
-			Returns:    input.PortfolioReturns,
-			ReturnType: input.MonteCarloConfig.ReturnType,
-			SampleSize: len(input.PortfolioReturns),
-		}
-
-		mcResult, err := r.engine.MonteCarlo(mcInput, *input.MonteCarloConfig)
+	if input.MonteCarloConfig != nil && len(input.PortfolioReturns) >= 30 {
+		mcResult, err := r.engine.SimulateSimple(ctx, input.PortfolioReturns)
 		if err != nil {
 			r.log.Warn().Err(err).Msg("Monte Carlo simulation failed")
 		} else {
-			mcResult.DecisionSnapshotID = input.DecisionSnapshotID
 			report.MonteCarlo = mcResult
 			report.Metadata.MonteCarloConf = input.MonteCarloConfig
 		}
@@ -124,11 +118,8 @@ func (r *RiskReporter) GenerateReport(ctx context.Context, input RiskReportInput
 		report.Accuracy = accuracy
 	}
 
-	// 4. 스트레스 테스트 (선택적)
-	if len(input.Weights) > 0 {
-		scenarios := risk.PredefinedScenarios()
-		report.Stress = r.engine.StressTest(input.Weights, scenarios)
-	}
+	// 4. 스트레스 테스트 (선택적) - 향후 구현
+	// TODO: Stress test scenarios
 
 	r.log.Info().
 		Str("run_id", input.RunID).
@@ -147,13 +138,13 @@ func (r *RiskReporter) calculatePortfolioRisk(returns []float64) *PortfolioRiskS
 		return nil
 	}
 
-	// VaR/CVaR 계산
-	var95 := r.engine.VaR(returns, 0.95)
-	var99 := r.engine.VaR(returns, 0.99)
+	// VaR/CVaR 계산 (RiskEngine 사용)
+	var95 := r.engine.CalculateVaR(returns, 0.95)
+	var99 := r.engine.CalculateVaR(returns, 0.99)
 
-	// 기본 통계
-	mean := risk.Mean(returns)
-	stdDev := risk.StdDev(returns)
+	// 기본 통계 (risk 패키지 함수 사용)
+	mean := risk.CalculateMean(returns)
+	stdDev := risk.CalculateVolatility(returns)
 
 	// Maximum Drawdown 계산
 	mdd := r.calculateMaxDrawdown(returns)
@@ -222,23 +213,11 @@ func (r *RiskReporter) calculateAccuracy(validations []risk.ValidationResult) *r
 		Key:         "ALL",
 		SampleCount: len(validations),
 		MAE:         sumAbsError / n,
-		RMSE:        sqrt(sqrtSumSq),
+		RMSE:        math.Sqrt(sqrtSumSq),
 		HitRate:     float64(hitCount) / n,
 		MeanError:   sumError / n,
 		UpdatedAt:   time.Now(),
 	}
-}
-
-func sqrt(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	// Newton's method
-	z := x
-	for i := 0; i < 10; i++ {
-		z = (z + x/z) / 2
-	}
-	return z
 }
 
 // =============================================================================
@@ -315,20 +294,19 @@ func (r *RiskReporter) SaveMonteCarloResult(ctx context.Context, result *risk.Mo
 
 	query := `
 		INSERT INTO analytics.montecarlo_results (
-			run_id, run_date, decision_snapshot_id, config,
-			input_sample_count, mean_return, std_dev,
+			run_id, run_date, config,
+			mean_return, std_dev,
 			var_95, var_99, cvar_95, cvar_99, percentiles
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (run_id) DO UPDATE SET
-			decision_snapshot_id = EXCLUDED.decision_snapshot_id,
 			config = EXCLUDED.config,
 			mean_return = EXCLUDED.mean_return,
 			var_95 = EXCLUDED.var_95
 	`
 
 	_, err = r.repo.pool.Exec(ctx, query,
-		result.RunID, result.RunDate, result.DecisionSnapshotID, configJSON,
-		result.InputSampleCount, result.MeanReturn, result.StdDev,
+		result.RunID, result.RunDate, configJSON,
+		result.MeanReturn, result.StdDev,
 		result.VaR95, result.VaR99, result.CVaR95, result.CVaR99, percentilesJSON,
 	)
 

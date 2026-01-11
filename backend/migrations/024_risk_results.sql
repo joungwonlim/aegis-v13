@@ -3,13 +3,11 @@
 -- Date: 2026-01-11
 
 -- Monte Carlo 시뮬레이션 결과 테이블
--- ⭐ decision_snapshot_id로 재현성 연결
+-- ⭐ config에 재현성 정보 포함 (num_simulations, seed 등)
 CREATE TABLE IF NOT EXISTS analytics.montecarlo_results (
     run_id VARCHAR(50) PRIMARY KEY,
     run_date DATE NOT NULL,
-    decision_snapshot_id BIGINT REFERENCES audit.decision_snapshots(id),  -- 재현성용
     config JSONB NOT NULL,            -- MonteCarloConfig 전체 저장 (재현성)
-    input_sample_count INT NOT NULL,  -- 입력 샘플 수
     mean_return NUMERIC(10,6),        -- 평균 수익률
     std_dev NUMERIC(10,6),            -- 표준편차
     var_95 NUMERIC(10,6),             -- 95% VaR (손실=양수)
@@ -24,7 +22,6 @@ CREATE TABLE IF NOT EXISTS analytics.montecarlo_results (
 CREATE TABLE IF NOT EXISTS analytics.var_daily_snapshots (
     snapshot_date DATE NOT NULL,
     portfolio_id VARCHAR(50) NOT NULL DEFAULT 'main',
-    decision_snapshot_id BIGINT REFERENCES audit.decision_snapshots(id),
     var_95 NUMERIC(10,6),
     var_99 NUMERIC(10,6),
     cvar_95 NUMERIC(10,6),
@@ -49,8 +46,6 @@ CREATE TABLE IF NOT EXISTS analytics.stress_test_results (
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_montecarlo_results_date
     ON analytics.montecarlo_results(run_date);
-CREATE INDEX IF NOT EXISTS idx_montecarlo_results_snapshot
-    ON analytics.montecarlo_results(decision_snapshot_id);
 
 CREATE INDEX IF NOT EXISTS idx_var_daily_date
     ON analytics.var_daily_snapshots(snapshot_date);
@@ -62,8 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_stress_test_run
 
 -- 코멘트 추가
 COMMENT ON TABLE analytics.montecarlo_results IS 'Monte Carlo 시뮬레이션 결과';
-COMMENT ON COLUMN analytics.montecarlo_results.config IS 'MonteCarloConfig JSON (num_simulations, holding_period, method, seed 등)';
-COMMENT ON COLUMN analytics.montecarlo_results.decision_snapshot_id IS '의사결정 스냅샷 참조 (재현성 보장)';
+COMMENT ON COLUMN analytics.montecarlo_results.config IS 'MonteCarloConfig JSON (num_simulations, holding_period, method, seed 등) - 재현성 보장';
 COMMENT ON COLUMN analytics.montecarlo_results.var_95 IS '95% VaR - 손실을 양수로 표현 (0.05 = 5% 손실)';
 
 COMMENT ON TABLE analytics.var_daily_snapshots IS '일별 VaR 추이 기록 (리스크 모니터링용)';

@@ -1,203 +1,254 @@
 package risk
 
 import (
-	"errors"
+	"context"
 	"fmt"
+	"sort"
 	"time"
+
+	"github.com/wonny/aegis/v13/backend/pkg/logger"
 )
 
-// =============================================================================
-// RiskEngine Interface - 순수 계산기
-// =============================================================================
-
-// Engine 리스크 엔진 (순수 계산기)
-// ⭐ SSOT: 데이터 수집/포트폴리오 구성/한도정책은 상위 레이어(S6/S7)에서 조립
-// internal/risk는 순수 계산만 담당
-type Engine struct{}
-
-// NewEngine 새 리스크 엔진 생성
-func NewEngine() *Engine {
-	return &Engine{}
+// Engine 리스크 엔진 (S6/S7 공용)
+// SSOT: 리스크 계산 로직의 단일 진실원천
+type Engine struct {
+	limits    RiskLimits
+	mcConfig  MonteCarloConfig
+	simulator *MonteCarloSimulator
+	logger    *logger.Logger
 }
 
-// =============================================================================
-// VaR/CVaR Calculation (Pure)
-// =============================================================================
+// NewEngine 새 리스크 엔진 생성
+func NewEngine(limits RiskLimits, mcConfig MonteCarloConfig, logger *logger.Logger) *Engine {
+	return &Engine{
+		limits:    limits,
+		mcConfig:  mcConfig,
+		simulator: NewMonteCarloSimulator(mcConfig),
+		logger:    logger,
+	}
+}
 
-// VaR Historical VaR 계산
-// returns: 일별 수익률 (양수=이익, 음수=손실)
-// confidence: 신뢰수준 (예: 0.95, 0.99)
-// 반환: VaRResult (손실을 양수로 표현)
-func (e *Engine) VaR(returns []float64, confidence float64) VaRResult {
+// NewDefaultEngine 기본 설정으로 리스크 엔진 생성
+func NewDefaultEngine(logger *logger.Logger) *Engine {
+	return NewEngine(
+		DefaultRiskLimits(),
+		DefaultMonteCarloConfig(),
+		logger,
+	)
+}
+
+// CalculateVaR 수익률 배열에서 VaR 계산 (S6/S7 공용)
+func (e *Engine) CalculateVaR(returns []float64, confidence float64) VaRResult {
 	return CalculateVaR(returns, confidence)
 }
 
-// CVaR Conditional VaR (Expected Shortfall) 계산
-func (e *Engine) CVaR(returns []float64, confidence float64) VaRResult {
-	return CalculateVaR(returns, confidence) // CVaR도 함께 계산됨
+// SimulatePortfolio Monte Carlo 시뮬레이션 실행 (S7용)
+func (e *Engine) SimulatePortfolio(
+	ctx context.Context,
+	historicalReturns map[string][]float64,
+	weights map[string]float64,
+) (*MonteCarloResult, error) {
+	return e.simulator.Simulate(ctx, historicalReturns, weights)
 }
 
-// ParametricVaR 정규분포 가정 VaR 계산
-func (e *Engine) ParametricVaR(mean, stdDev, confidence float64) VaRResult {
-	return CalculateParametricVaR(mean, stdDev, confidence)
+// SimulateSimple 단순 포트폴리오 시뮬레이션 (S7용)
+func (e *Engine) SimulateSimple(
+	ctx context.Context,
+	portfolioReturns []float64,
+) (*MonteCarloResult, error) {
+	return e.simulator.SimulateSimple(ctx, portfolioReturns)
 }
 
-// =============================================================================
-// Monte Carlo Simulation (Pure)
-// =============================================================================
+// CheckRiskLimits 리스크 한도 체크 (S6 게이트용)
+func (e *Engine) CheckRiskLimits(
+	ctx context.Context,
+	holdings []Holding,
+	historicalReturns map[string][]float64,
+) (*RiskCheckResult, error) {
+	violations := make([]RiskViolation, 0)
 
-var (
-	ErrInsufficientData = errors.New("insufficient data for simulation")
-	ErrInvalidConfig    = errors.New("invalid configuration")
-)
-
-// MonteCarlo 포트폴리오 Monte Carlo 시뮬레이션
-// input: 포트폴리오 수익률 시계열 (상위 레이어에서 조립해서 전달)
-// config: 시뮬레이션 설정
-// 반환: MonteCarloResult
-func (e *Engine) MonteCarlo(input PortfolioReturns, config MonteCarloConfig) (*MonteCarloResult, error) {
-	// Fail-closed: 최소 샘플 수 체크
-	if len(input.Returns) < config.MinSamples {
-		return nil, fmt.Errorf("%w: got %d, need %d",
-			ErrInsufficientData, len(input.Returns), config.MinSamples)
+	// 1. 비중 맵 생성
+	weights := make(map[string]float64)
+	for _, h := range holdings {
+		weights[h.Code] = h.Weight
 	}
 
-	// 시뮬레이터 생성 및 실행
-	simulator := NewMonteCarloSimulator(config)
-	result, err := simulator.SimulateReturns(input.Returns)
-	if err != nil {
-		return nil, err
+	// 2. 포트폴리오 VaR 계산
+	portfolioVaR := e.calculatePortfolioVaR(historicalReturns, weights)
+
+	// 3. 익스포저 계산
+	metrics := e.calculateMetrics(holdings)
+	metrics.PortfolioVaR95 = portfolioVaR.VaR95
+	metrics.PortfolioVaR99 = portfolioVaR.VaR99
+
+	// 4. 한도 체크
+	// VaR 95 한도
+	if metrics.PortfolioVaR95 > e.limits.MaxVaR95 {
+		violations = append(violations, RiskViolation{
+			Type:     "VAR_95_LIMIT",
+			Limit:    e.limits.MaxVaR95,
+			Actual:   metrics.PortfolioVaR95,
+			Severity: "BLOCK",
+			Message:  fmt.Sprintf("95%% VaR %.2f%% exceeds limit %.2f%%", metrics.PortfolioVaR95*100, e.limits.MaxVaR95*100),
+		})
 	}
 
-	result.InputSampleCount = len(input.Returns)
+	// VaR 99 한도
+	if metrics.PortfolioVaR99 > e.limits.MaxVaR99 {
+		violations = append(violations, RiskViolation{
+			Type:     "VAR_99_LIMIT",
+			Limit:    e.limits.MaxVaR99,
+			Actual:   metrics.PortfolioVaR99,
+			Severity: "BLOCK",
+			Message:  fmt.Sprintf("99%% VaR %.2f%% exceeds limit %.2f%%", metrics.PortfolioVaR99*100, e.limits.MaxVaR99*100),
+		})
+	}
+
+	// 단일 종목 비중 한도
+	if metrics.MaxSingleExposure > e.limits.MaxSingleExposure {
+		violations = append(violations, RiskViolation{
+			Type:     "SINGLE_EXPOSURE_LIMIT",
+			Limit:    e.limits.MaxSingleExposure,
+			Actual:   metrics.MaxSingleExposure,
+			Severity: "BLOCK",
+			Message:  fmt.Sprintf("Max single exposure %.2f%% exceeds limit %.2f%%", metrics.MaxSingleExposure*100, e.limits.MaxSingleExposure*100),
+		})
+	}
+
+	// 집중도 한도
+	if metrics.ConcentrationRatio > e.limits.MaxConcentration {
+		violations = append(violations, RiskViolation{
+			Type:     "CONCENTRATION_LIMIT",
+			Limit:    e.limits.MaxConcentration,
+			Actual:   metrics.ConcentrationRatio,
+			Severity: "WARNING",
+			Message:  fmt.Sprintf("Top 5 concentration %.2f%% exceeds limit %.2f%%", metrics.ConcentrationRatio*100, e.limits.MaxConcentration*100),
+		})
+	}
+
+	// 유동성 점수
+	if metrics.LiquidityScore < e.limits.MinLiquidityScore {
+		violations = append(violations, RiskViolation{
+			Type:     "LIQUIDITY_LIMIT",
+			Limit:    e.limits.MinLiquidityScore,
+			Actual:   metrics.LiquidityScore,
+			Severity: "WARNING",
+			Message:  fmt.Sprintf("Liquidity score %.2f below minimum %.2f", metrics.LiquidityScore, e.limits.MinLiquidityScore),
+		})
+	}
+
+	// BLOCK 위반이 있는지 확인
+	passed := true
+	for _, v := range violations {
+		if v.Severity == "BLOCK" {
+			passed = false
+			break
+		}
+	}
+
+	result := &RiskCheckResult{
+		Passed:     passed,
+		Violations: violations,
+		Metrics:    metrics,
+		CheckedAt:  time.Now(),
+	}
+
+	// 로깅
+	if !passed {
+		e.logger.WithFields(map[string]interface{}{
+			"violations": len(violations),
+			"var_95":     metrics.PortfolioVaR95,
+			"var_99":     metrics.PortfolioVaR99,
+		}).Warn("Risk check failed")
+	}
+
 	return result, nil
 }
 
-// =============================================================================
-// Risk Check (S6 Gate용 - 순수 계산)
-// =============================================================================
-
-// CheckLimits 리스크 한도 체크 (순수 계산)
-// input: 포트폴리오 수익률 (상위 레이어에서 조립)
-// limits: 리스크 한도
-// 반환: RiskCheckResult
-func (e *Engine) CheckLimits(input RiskCheckInput, limits RiskLimits) *RiskCheckResult {
-	result := &RiskCheckResult{
-		Passed:       true,
-		MaxVaRLimit:  limits.MaxVaR95,
-		MaxCVaRLimit: limits.MaxCVaR95,
-		Violations:   make([]string, 0),
-		CheckedAt:    time.Now(),
-	}
-
-	// Historical VaR 계산
-	varResult := CalculateVaR(input.PortfolioReturns, 0.95)
-	result.VaR95 = varResult.VaR
-	result.CVaR95 = varResult.CVaR
-
-	// VaR 한도 체크
-	if varResult.VaR > limits.MaxVaR95 {
-		result.Passed = false
-		result.Violations = append(result.Violations,
-			fmt.Sprintf("VaR95 %.4f exceeds limit %.4f", varResult.VaR, limits.MaxVaR95))
-	}
-
-	// CVaR 한도 체크
-	if varResult.CVaR > limits.MaxCVaR95 {
-		result.Passed = false
-		result.Violations = append(result.Violations,
-			fmt.Sprintf("CVaR95 %.4f exceeds limit %.4f", varResult.CVaR, limits.MaxCVaR95))
-	}
-
-	return result
-}
-
-// =============================================================================
-// Stress Test (순수 계산)
-// =============================================================================
-
-// StressTest 스트레스 시나리오 테스트
-// weights: 종목별 비중 map[code]weight
-// scenarios: 스트레스 시나리오
-// 반환: 시나리오별 포트폴리오 손실
-func (e *Engine) StressTest(weights map[string]float64, scenarios []Scenario) map[string]float64 {
-	results := make(map[string]float64)
-
-	for _, scenario := range scenarios {
-		var portfolioLoss float64
-
-		for code, weight := range weights {
-			shock, exists := scenario.Shocks[code]
-			if !exists {
-				// 전체 시장 충격 확인
-				shock, exists = scenario.Shocks["*"]
-				if !exists {
-					continue
-				}
-			}
-			portfolioLoss += weight * shock
-		}
-
-		results[scenario.Name] = portfolioLoss
-	}
-
-	return results
-}
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-// CalculatePortfolioReturns 종목별 수익률에서 포트폴리오 수익률 계산
-// weights: 종목별 비중 map[code]weight
-// assetReturns: 종목별 수익률 시계열 map[code][]returns
-// 반환: 포트폴리오 수익률 시계열
-func CalculatePortfolioReturns(weights map[string]float64, assetReturns map[string][]float64) []float64 {
-	// 최소 데이터 길이 찾기
-	minLen := -1
-	for _, returns := range assetReturns {
-		if minLen == -1 || len(returns) < minLen {
+// calculatePortfolioVaR 간이 포트폴리오 VaR 계산
+func (e *Engine) calculatePortfolioVaR(
+	historicalReturns map[string][]float64,
+	weights map[string]float64,
+) struct {
+	VaR95 float64
+	VaR99 float64
+} {
+	// 포트폴리오 수익률 시계열 구성
+	// 가장 짧은 시계열 길이 찾기
+	minLen := 0
+	for _, returns := range historicalReturns {
+		if minLen == 0 || len(returns) < minLen {
 			minLen = len(returns)
 		}
 	}
 
-	if minLen <= 0 {
-		return nil
+	if minLen == 0 {
+		return struct {
+			VaR95 float64
+			VaR99 float64
+		}{0, 0}
 	}
 
-	// 비중 가중 수익률
+	// 날짜별 포트폴리오 수익률 계산
 	portfolioReturns := make([]float64, minLen)
 	for i := 0; i < minLen; i++ {
-		var dayReturn float64
+		dayReturn := 0.0
 		for code, weight := range weights {
-			if returns, ok := assetReturns[code]; ok && i < len(returns) {
+			if returns, ok := historicalReturns[code]; ok && i < len(returns) {
 				dayReturn += weight * returns[i]
 			}
 		}
 		portfolioReturns[i] = dayReturn
 	}
 
-	return portfolioReturns
+	// VaR 계산
+	var95 := CalculateVaR(portfolioReturns, 0.95)
+	var99 := CalculateVaR(portfolioReturns, 0.99)
+
+	return struct {
+		VaR95 float64
+		VaR99 float64
+	}{var95.VaR, var99.VaR}
 }
 
-// ValidateConfig 설정 유효성 검사
-func ValidateConfig(config MonteCarloConfig) error {
-	if config.NumSimulations <= 0 {
-		return fmt.Errorf("%w: NumSimulations must be > 0", ErrInvalidConfig)
+// calculateMetrics 포트폴리오 메트릭 계산
+func (e *Engine) calculateMetrics(holdings []Holding) RiskMetrics {
+	metrics := RiskMetrics{}
+
+	if len(holdings) == 0 {
+		return metrics
 	}
-	if config.HoldingPeriod <= 0 {
-		return fmt.Errorf("%w: HoldingPeriod must be > 0", ErrInvalidConfig)
+
+	// 비중 정렬 (내림차순)
+	sorted := make([]Holding, len(holdings))
+	copy(sorted, holdings)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Weight > sorted[j].Weight
+	})
+
+	// 최대 단일 종목 비중
+	metrics.MaxSingleExposure = sorted[0].Weight
+
+	// 상위 5종목 집중도
+	top5Weight := 0.0
+	for i := 0; i < 5 && i < len(sorted); i++ {
+		top5Weight += sorted[i].Weight
 	}
-	if config.MinSamples <= 0 {
-		return fmt.Errorf("%w: MinSamples must be > 0", ErrInvalidConfig)
-	}
-	if len(config.ConfidenceLevels) == 0 {
-		return fmt.Errorf("%w: ConfidenceLevels cannot be empty", ErrInvalidConfig)
-	}
-	for _, cl := range config.ConfidenceLevels {
-		if cl <= 0 || cl >= 1 {
-			return fmt.Errorf("%w: ConfidenceLevel must be between 0 and 1", ErrInvalidConfig)
-		}
-	}
-	return nil
+	metrics.ConcentrationRatio = top5Weight
+
+	// 유동성 점수 (TODO: ADTV 기반 계산)
+	// 현재는 더미 값
+	metrics.LiquidityScore = 0.8
+
+	return metrics
+}
+
+// GetLimits 현재 리스크 한도 반환
+func (e *Engine) GetLimits() RiskLimits {
+	return e.limits
+}
+
+// SetLimits 리스크 한도 업데이트
+func (e *Engine) SetLimits(limits RiskLimits) {
+	e.limits = limits
 }

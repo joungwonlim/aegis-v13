@@ -1,21 +1,16 @@
 package risk
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// =============================================================================
-// Monte Carlo Simulator
-// =============================================================================
-
 // MonteCarloSimulator Monte Carlo 시뮬레이터
-// ⭐ SSOT: Monte Carlo 시뮬레이션은 여기서만
 type MonteCarloSimulator struct {
 	config MonteCarloConfig
 	rng    *rand.Rand
@@ -23,12 +18,11 @@ type MonteCarloSimulator struct {
 
 // NewMonteCarloSimulator 새 시뮬레이터 생성
 func NewMonteCarloSimulator(config MonteCarloConfig) *MonteCarloSimulator {
-	// Seed 설정
 	var rng *rand.Rand
-	if config.Seed == 0 {
-		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-	} else {
+	if config.Seed != 0 {
 		rng = rand.New(rand.NewSource(config.Seed))
+	} else {
+		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
 
 	return &MonteCarloSimulator{
@@ -37,242 +31,176 @@ func NewMonteCarloSimulator(config MonteCarloConfig) *MonteCarloSimulator {
 	}
 }
 
-// SimulateReturns 포트폴리오 수익률 시계열로 Monte Carlo 시뮬레이션
-// returns: 포트폴리오 일별 수익률 (상위 레이어에서 조립해서 전달)
-// 반환: 시뮬레이션 결과 (VaR, CVaR, 분포 등)
-func (s *MonteCarloSimulator) SimulateReturns(returns []float64) (*MonteCarloResult, error) {
-	if len(returns) == 0 {
-		return nil, fmt.Errorf("no returns provided")
+// Simulate 포트폴리오 Monte Carlo 시뮬레이션 실행
+// historicalReturns: 각 종목별 과거 수익률 [code][]float64
+// weights: 각 종목별 비중 [code]float64
+func (mc *MonteCarloSimulator) Simulate(
+	ctx context.Context,
+	historicalReturns map[string][]float64,
+	weights map[string]float64,
+) (*MonteCarloResult, error) {
+	// 입력 검증
+	if len(historicalReturns) == 0 || len(weights) == 0 {
+		return nil, fmt.Errorf("empty historical returns or weights")
 	}
 
-	// 최소 샘플 체크
-	if len(returns) < s.config.MinSamples {
-		return nil, fmt.Errorf("insufficient samples: got %d, need %d", len(returns), s.config.MinSamples)
-	}
+	// 시뮬레이션 결과 저장
+	portfolioReturns := make([]float64, mc.config.NumSimulations)
 
-	// 시뮬레이션 실행
-	var simReturns []float64
-	switch s.config.Method {
-	case MethodHistoricalBootstrap:
-		simReturns = s.bootstrapSimulation(returns)
-	case MethodParametricNormal:
-		simReturns = s.parametricNormalSimulation(returns)
-	case MethodParametricT:
-		simReturns = s.parametricTSimulation(returns)
-	default:
-		simReturns = s.bootstrapSimulation(returns)
+	// Historical Simulation 방식
+	if mc.config.Method == "historical" {
+		portfolioReturns = mc.historicalSimulation(historicalReturns, weights)
+	} else {
+		// Parametric 방식 (정규분포 가정)
+		portfolioReturns = mc.parametricSimulation(historicalReturns, weights)
 	}
 
 	// 결과 계산
-	result := s.calculateResults(simReturns)
-	result.RunID = uuid.New().String()[:8]
-	result.RunDate = time.Now()
-	result.Config = s.config
-	result.CreatedAt = time.Now()
+	result := mc.calculateResult(portfolioReturns)
 
 	return result, nil
 }
 
-// bootstrapSimulation Historical Bootstrap 시뮬레이션
-// 과거 수익률을 랜덤 추출하여 미래 수익률 시뮬레이션
-func (s *MonteCarloSimulator) bootstrapSimulation(returns []float64) []float64 {
-	n := len(returns)
-	if n == 0 {
-		return nil
-	}
+// historicalSimulation Historical Simulation 방식
+// 과거 수익률을 랜덤하게 재샘플링
+func (mc *MonteCarloSimulator) historicalSimulation(
+	historicalReturns map[string][]float64,
+	weights map[string]float64,
+) []float64 {
+	results := make([]float64, mc.config.NumSimulations)
 
-	simReturns := make([]float64, s.config.NumSimulations)
-
-	for i := 0; i < s.config.NumSimulations; i++ {
-		// 보유 기간 동안의 누적 수익률
-		cumReturn := 1.0
-		for d := 0; d < s.config.HoldingPeriod; d++ {
-			// 랜덤 추출 (복원추출)
-			idx := s.rng.Intn(n)
-			cumReturn *= (1 + returns[idx])
+	// 모든 종목의 과거 데이터 길이 확인
+	minLen := math.MaxInt32
+	for _, returns := range historicalReturns {
+		if len(returns) < minLen {
+			minLen = len(returns)
 		}
-		simReturns[i] = cumReturn - 1 // 수익률로 변환
 	}
 
-	return simReturns
-}
-
-// parametricNormalSimulation 정규분포 가정 시뮬레이션
-func (s *MonteCarloSimulator) parametricNormalSimulation(returns []float64) []float64 {
-	if len(returns) == 0 {
-		return nil
+	if minLen == 0 {
+		return results
 	}
 
-	// 평균, 표준편차 계산
-	mean := Mean(returns)
-	stdDev := StdDev(returns)
+	// 보유 기간 동안의 누적 수익률 시뮬레이션
+	for i := 0; i < mc.config.NumSimulations; i++ {
+		// 랜덤 시작 인덱스 선택
+		portfolioReturn := 0.0
 
-	simReturns := make([]float64, s.config.NumSimulations)
+		for code, weight := range weights {
+			returns := historicalReturns[code]
+			if len(returns) == 0 {
+				continue
+			}
 
-	// 보유 기간 스케일링
-	// 일별 → 기간 수익률: mean * days, stdDev * sqrt(days)
-	periodMean := mean * float64(s.config.HoldingPeriod)
-	periodStd := stdDev * math.Sqrt(float64(s.config.HoldingPeriod))
+			// 보유 기간 동안의 누적 수익률
+			cumReturn := 1.0
+			for d := 0; d < mc.config.HoldingPeriod; d++ {
+				// 랜덤하게 과거 수익률 선택
+				idx := mc.rng.Intn(len(returns))
+				cumReturn *= (1 + returns[idx])
+			}
+			stockReturn := cumReturn - 1
 
-	for i := 0; i < s.config.NumSimulations; i++ {
-		// Box-Muller transform for normal random
-		u1, u2 := s.rng.Float64(), s.rng.Float64()
-		z := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
-
-		simReturns[i] = periodMean + periodStd*z
-	}
-
-	return simReturns
-}
-
-// parametricTSimulation t-분포 시뮬레이션 (Fat Tail 반영)
-func (s *MonteCarloSimulator) parametricTSimulation(returns []float64) []float64 {
-	if len(returns) == 0 {
-		return nil
-	}
-
-	// 평균, 표준편차 계산
-	mean := Mean(returns)
-	stdDev := StdDev(returns)
-
-	// t-분포 자유도 (일반적으로 5-10 사용)
-	df := 5.0
-
-	simReturns := make([]float64, s.config.NumSimulations)
-
-	// 보유 기간 스케일링
-	periodMean := mean * float64(s.config.HoldingPeriod)
-	periodStd := stdDev * math.Sqrt(float64(s.config.HoldingPeriod))
-
-	for i := 0; i < s.config.NumSimulations; i++ {
-		// t-분포 랜덤: z / sqrt(chi^2/df)
-		// Box-Muller for normal
-		u1, u2 := s.rng.Float64(), s.rng.Float64()
-		z := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
-
-		// Chi-squared approximation (sum of squared normals)
-		var chi2 float64
-		for j := 0; j < int(df); j++ {
-			u3, u4 := s.rng.Float64(), s.rng.Float64()
-			n := math.Sqrt(-2*math.Log(u3)) * math.Cos(2*math.Pi*u4)
-			chi2 += n * n
+			// 포트폴리오 가중 수익률
+			portfolioReturn += weight * stockReturn
 		}
 
-		t := z / math.Sqrt(chi2/df)
-		simReturns[i] = periodMean + periodStd*t
+		results[i] = portfolioReturn
 	}
 
-	return simReturns
+	return results
 }
 
-// calculateResults 시뮬레이션 결과 계산
-func (s *MonteCarloSimulator) calculateResults(simReturns []float64) *MonteCarloResult {
-	if len(simReturns) == 0 {
-		return &MonteCarloResult{}
+// parametricSimulation Parametric Simulation 방식
+// 정규분포 가정 하에 시뮬레이션
+func (mc *MonteCarloSimulator) parametricSimulation(
+	historicalReturns map[string][]float64,
+	weights map[string]float64,
+) []float64 {
+	results := make([]float64, mc.config.NumSimulations)
+
+	// 각 종목의 평균과 표준편차 계산
+	means := make(map[string]float64)
+	stds := make(map[string]float64)
+
+	for code, returns := range historicalReturns {
+		means[code] = CalculateMean(returns)
+		stds[code] = CalculateVolatility(returns)
 	}
 
-	// 정렬
-	sorted := make([]float64, len(simReturns))
-	copy(sorted, simReturns)
-	sort.Float64s(sorted)
+	// 보유 기간 스케일링
+	sqrtT := math.Sqrt(float64(mc.config.HoldingPeriod))
 
+	for i := 0; i < mc.config.NumSimulations; i++ {
+		portfolioReturn := 0.0
+
+		for code, weight := range weights {
+			mean := means[code] * float64(mc.config.HoldingPeriod)
+			std := stds[code] * sqrtT
+
+			// 정규분포에서 랜덤 샘플링
+			z := mc.rng.NormFloat64()
+			stockReturn := mean + std*z
+
+			portfolioReturn += weight * stockReturn
+		}
+
+		results[i] = portfolioReturn
+	}
+
+	return results
+}
+
+// calculateResult 시뮬레이션 결과 통계 계산
+func (mc *MonteCarloSimulator) calculateResult(portfolioReturns []float64) *MonteCarloResult {
 	// 기본 통계
-	result := &MonteCarloResult{
-		MeanReturn:  Mean(simReturns),
-		StdDev:      StdDev(simReturns),
-		Percentiles: make(map[int]float64),
-	}
-
-	// 백분위수
-	percentiles := []int{1, 5, 10, 25, 50, 75, 90, 95, 99}
-	for _, p := range percentiles {
-		result.Percentiles[p] = Percentile(sorted, float64(p))
-	}
+	mean := CalculateMean(portfolioReturns)
+	stdDev := CalculateVolatility(portfolioReturns)
 
 	// VaR/CVaR 계산
-	var95Result := CalculateVaR(simReturns, 0.95)
-	var99Result := CalculateVaR(simReturns, 0.99)
+	var95 := CalculateVaR(portfolioReturns, 0.95)
+	var99 := CalculateVaR(portfolioReturns, 0.99)
 
-	result.VaR95 = var95Result.VaR
-	result.CVaR95 = var95Result.CVaR
-	result.VaR99 = var99Result.VaR
-	result.CVaR99 = var99Result.CVaR
+	// 백분위수 계산
+	percentiles := CalculatePercentiles(portfolioReturns, []int{1, 5, 10, 25, 50, 75, 90, 95, 99})
 
-	return result
-}
-
-// =============================================================================
-// Scenario Simulation
-// =============================================================================
-
-// Scenario 스트레스 시나리오
-type Scenario struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Shocks      map[string]float64 `json:"shocks"` // 종목별 충격 (예: {"005930": -0.10})
-}
-
-// PredefinedScenarios 사전 정의 시나리오
-func PredefinedScenarios() []Scenario {
-	return []Scenario{
-		{
-			Name:        "market_crash",
-			Description: "시장 급락 (-10%)",
-			Shocks:      map[string]float64{"*": -0.10},
-		},
-		{
-			Name:        "sector_rotation",
-			Description: "섹터 회전 (기술 -5%, 금융 +3%)",
-			Shocks:      map[string]float64{"TECH": -0.05, "FINANCE": 0.03},
-		},
-		{
-			Name:        "black_swan",
-			Description: "블랙스완 (-20%)",
-			Shocks:      map[string]float64{"*": -0.20},
-		},
+	return &MonteCarloResult{
+		RunID:       uuid.New().String(),
+		RunDate:     time.Now(),
+		Config:      mc.config,
+		MeanReturn:  mean,
+		StdDev:      stdDev,
+		VaR95:       var95.VaR,
+		VaR99:       var99.VaR,
+		CVaR95:      var95.CVaR,
+		CVaR99:      var99.CVaR,
+		Percentiles: percentiles,
+		CreatedAt:   time.Now(),
 	}
 }
 
-// =============================================================================
-// Block Bootstrap (자기상관 유지)
-// =============================================================================
-
-// BlockBootstrapSimulation 블록 부트스트랩 시뮬레이션
-// 연속된 수익률 블록을 추출하여 자기상관 유지
-func (s *MonteCarloSimulator) BlockBootstrapSimulation(returns []float64, blockSize int) []float64 {
-	n := len(returns)
-	if n == 0 || blockSize <= 0 {
-		return nil
+// SimulateSimple 단일 종목 또는 단순 포트폴리오 시뮬레이션
+// returns: 포트폴리오 수익률 시계열
+func (mc *MonteCarloSimulator) SimulateSimple(
+	ctx context.Context,
+	portfolioReturns []float64,
+) (*MonteCarloResult, error) {
+	if len(portfolioReturns) == 0 {
+		return nil, fmt.Errorf("empty portfolio returns")
 	}
 
-	// 블록 수 계산
-	numBlocks := (s.config.HoldingPeriod + blockSize - 1) / blockSize
+	// Historical Simulation
+	results := make([]float64, mc.config.NumSimulations)
 
-	simReturns := make([]float64, s.config.NumSimulations)
-
-	for i := 0; i < s.config.NumSimulations; i++ {
-		var cumReturn float64
-		daysUsed := 0
-
-		for b := 0; b < numBlocks && daysUsed < s.config.HoldingPeriod; b++ {
-			// 블록 시작점 랜덤 선택
-			maxStart := n - blockSize
-			if maxStart < 0 {
-				maxStart = 0
-			}
-			startIdx := s.rng.Intn(maxStart + 1)
-
-			// 블록 내 수익률 합산
-			for d := 0; d < blockSize && daysUsed < s.config.HoldingPeriod; d++ {
-				if startIdx+d < n {
-					cumReturn += returns[startIdx+d]
-					daysUsed++
-				}
-			}
+	for i := 0; i < mc.config.NumSimulations; i++ {
+		// 보유 기간 동안의 누적 수익률
+		cumReturn := 1.0
+		for d := 0; d < mc.config.HoldingPeriod; d++ {
+			idx := mc.rng.Intn(len(portfolioReturns))
+			cumReturn *= (1 + portfolioReturns[idx])
 		}
-
-		simReturns[i] = cumReturn
+		results[i] = cumReturn - 1
 	}
 
-	return simReturns
+	return mc.calculateResult(results), nil
 }

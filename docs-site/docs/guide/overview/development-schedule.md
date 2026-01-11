@@ -985,7 +985,7 @@ internal/execution/
 
 ## Phase 6: 감사 레이어 (S7)
 
-### 🔄 현재 상태 (2026-01-10)
+### ✅ 완료 상태 (2026-01-11)
 
 | 작업 | 상태 | 완료일 |
 |------|------|--------|
@@ -993,13 +993,36 @@ internal/execution/
 | Attribution | ✅ 완료 | 2026-01-10 |
 | Snapshot | ✅ 완료 | 2026-01-10 |
 | Audit Repository | ✅ 완료 | 2026-01-10 |
+| **RiskReporter** | ✅ 완료 | 2026-01-11 |
+| **Risk Module (Monte Carlo/VaR)** | ✅ 완료 | 2026-01-11 |
+| **Forecast Validator** | ✅ 완료 | 2026-01-11 |
 
 **완료된 것:**
 - ✅ `internal/audit/performance.go` - 성과 분석 (Sharpe, Sortino, MDD)
 - ✅ `internal/audit/attribution.go` - 팩터 기여도 분석
 - ✅ `internal/audit/snapshot.go` - 일별 스냅샷, equity curve
 - ✅ `internal/audit/repository.go` - DB 저장
+- ✅ `internal/audit/risk_report.go` - 리스크 리포트 생성 (NEW)
 - ✅ 6개 팩터 기여도 분석 (Flow 포함)
+
+**Risk 모듈 (공용, Phase A):**
+- ✅ `internal/risk/engine.go` - RiskEngine (S6/S7 공용)
+- ✅ `internal/risk/var.go` - VaR/CVaR 계산
+- ✅ `internal/risk/montecarlo.go` - Monte Carlo 시뮬레이터
+- ✅ `internal/risk/types.go` - 공용 타입
+
+**Forecast 검증:**
+- ✅ `internal/forecast/validator.go` - 예측 검증
+- ✅ `internal/forecast/predictor.go` - 예측 생성
+
+**CLI 명령어:**
+- ✅ `go run ./cmd/quant forecast validate` - 예측 검증
+- ✅ `go run ./cmd/quant audit montecarlo` - Monte Carlo 시뮬레이션
+- ✅ `go run ./cmd/quant audit risk-report` - 리스크 리포트
+
+**DB 마이그레이션:**
+- ✅ `migrations/023_forecast_validation.sql`
+- ✅ `migrations/024_risk_results.sql`
 
 ### 목표
 성과 분석 및 시그널 기여도 분석

@@ -114,29 +114,15 @@ func runAuditMonteCarlo(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 	_ = cfg
-	_ = log
 
 	// Monte Carlo 설정
-	var method risk.MonteCarloMethod
-	switch mcMethod {
-	case "normal":
-		method = risk.MethodParametricNormal
-	case "t":
-		method = risk.MethodParametricT
-	default:
-		method = risk.MethodHistoricalBootstrap
-	}
-
 	mcConfig := risk.MonteCarloConfig{
-		Mode:             risk.ModePortfolioUnivariate,
-		ReturnType:       risk.ReturnSimple,
 		NumSimulations:   mcSimulations,
 		HoldingPeriod:    mcHoldingDays,
 		ConfidenceLevels: []float64{0.95, 0.99},
-		Method:           method,
+		Method:           mcMethod, // "historical" or "parametric"
 		LookbackDays:     mcLookbackDays,
 		Seed:             mcSeed,
-		MinSamples:       30,
 	}
 
 	fmt.Printf("\n📊 Configuration:\n")
@@ -155,6 +141,7 @@ func runAuditMonteCarlo(cmd *cobra.Command, args []string) error {
 
 	toDate := time.Now()
 	var weights map[string]float64
+	minSamples := 30
 
 	if mcDemo {
 		// 데모 모드: 샘플 포트폴리오 사용 (대형주 동일가중)
@@ -206,12 +193,12 @@ func runAuditMonteCarlo(cmd *cobra.Command, args []string) error {
 	assetReturns := make(map[string][]float64)
 	for code := range weights {
 		prices, err := priceRepo.GetByCodeAndDateRange(ctx, code, lookbackFrom, toDate)
-		if err != nil || len(prices) < mcConfig.MinSamples {
+		if err != nil || len(prices) < minSamples {
 			continue
 		}
 		// 가격에서 수익률 계산
 		returns := calculateReturnsFromPrices(prices)
-		if len(returns) >= mcConfig.MinSamples {
+		if len(returns) >= minSamples {
 			assetReturns[code] = returns
 		}
 	}
@@ -222,23 +209,18 @@ func runAuditMonteCarlo(cmd *cobra.Command, args []string) error {
 
 	// 포트폴리오 수익률 계산
 	portfolioReturns := risk.CalculatePortfolioReturns(weights, assetReturns)
-	if len(portfolioReturns) < mcConfig.MinSamples {
+	if len(portfolioReturns) < minSamples {
 		return fmt.Errorf("insufficient portfolio returns: got %d, need %d",
-			len(portfolioReturns), mcConfig.MinSamples)
+			len(portfolioReturns), minSamples)
 	}
 
 	fmt.Printf("📊 Portfolio Returns: %d days\n\n", len(portfolioReturns))
 
-	// Monte Carlo 실행
+	// Monte Carlo 실행 (새 API 사용)
 	fmt.Println("🎲 Running Monte Carlo simulation...")
-	engine := risk.NewEngine()
-	input := risk.PortfolioReturns{
-		Returns:    portfolioReturns,
-		ReturnType: mcConfig.ReturnType,
-		SampleSize: len(portfolioReturns),
-	}
+	engine := risk.NewEngine(risk.DefaultRiskLimits(), mcConfig, log)
 
-	result, err := engine.MonteCarlo(input, mcConfig)
+	result, err := engine.SimulateSimple(ctx, portfolioReturns)
 	if err != nil {
 		return fmt.Errorf("monte carlo failed: %w", err)
 	}
@@ -248,7 +230,7 @@ func runAuditMonteCarlo(cmd *cobra.Command, args []string) error {
 		jsonData, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(jsonData))
 	} else {
-		printMonteCarloResult(result)
+		printMonteCarloResult(result, len(portfolioReturns))
 	}
 
 	return nil
@@ -272,11 +254,11 @@ func calculateReturnsFromPrices(prices []*contracts.Price) []float64 {
 	return returns
 }
 
-func printMonteCarloResult(result *risk.MonteCarloResult) {
+func printMonteCarloResult(result *risk.MonteCarloResult, inputSamples int) {
 	fmt.Println("\n=== Monte Carlo Results ===")
 	fmt.Printf("Run ID: %s\n", result.RunID)
 	fmt.Printf("Run Date: %s\n", result.RunDate.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Input Samples: %d\n\n", result.InputSampleCount)
+	fmt.Printf("Input Samples: %d\n\n", inputSamples)
 
 	fmt.Println("📊 Distribution")
 	fmt.Printf("  Mean Return: %+.4f (%+.2f%%)\n", result.MeanReturn, result.MeanReturn*100)
@@ -338,7 +320,7 @@ func runAuditRiskReport(cmd *cobra.Command, args []string) error {
 	// 리포터 초기화
 	auditRepo := audit.NewRepository(db.Pool)
 	priceRepo := s0_data.NewPriceRepository(db.Pool)
-	engine := risk.NewEngine()
+	engine := risk.NewEngine(risk.DefaultRiskLimits(), risk.DefaultMonteCarloConfig(), log)
 	reporter := audit.NewRiskReporter(engine, auditRepo, log.Zerolog())
 
 	// 포트폴리오 데이터 조립 (S7 책임)
