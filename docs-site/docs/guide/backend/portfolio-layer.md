@@ -16,11 +16,12 @@ description: S5 포트폴리오 구성
 
 ---
 
-## 구현 상태 (2026-01-10)
+## 구현 상태 (2026-01-11)
 
 | 컴포넌트 | 상태 | 파일 |
 |---------|------|------|
 | **Constructor** | ✅ 완료 | `internal/portfolio/constructor.go` |
+| **Tiered Weighting** | ✅ 완료 | `internal/portfolio/constructor.go` |
 | **Constraints** | ✅ 완료 | `internal/portfolio/constraints.go` |
 | **Repository** | ✅ 완료 | `internal/portfolio/repository.go` |
 | Rebalancer | ⏳ TODO | `internal/portfolio/rebalancer.go` |
@@ -28,6 +29,32 @@ description: S5 포트폴리오 구성
 :::tip YAML SSOT
 포트폴리오 제약조건과 비중 배분은 `backend/config/strategy/korea_equity_v13.yaml`의 `portfolio` 섹션에서 관리됩니다.
 :::
+
+### YAML SSOT 설정값
+
+```yaml
+portfolio:
+  holdings:
+    target: 20      # 목표 종목 수
+    min: 15         # 최소 종목 수
+    max: 20         # 최대 종목 수
+
+  allocation:
+    cash_target_pct: 0.10        # 현금 10%
+    position_min_pct: 0.04       # 종목당 최소 4%
+    position_max_pct: 0.10       # 종목당 최대 10%
+    sector_max_pct: 0.25         # 섹터당 최대 25%
+    turnover_daily_max_pct: 0.20 # 일 회전율 최대 20%
+
+  weighting:
+    method: "TIERED"  # ⭐ Tiered Weighting
+    tiers:
+      - { count: 5,  weight_each_pct: 0.05 }   # 1-5위: 5%
+      - { count: 10, weight_each_pct: 0.045 }  # 6-15위: 4.5%
+      - { count: 5,  weight_each_pct: 0.04 }   # 16-20위: 4%
+    # 합계: 5×5% + 10×4.5% + 5×4% = 25% + 45% + 20% = 90%
+    # 주식 90% + 현금 10% = 100%
+```
 
 ---
 
@@ -83,7 +110,9 @@ internal/portfolio/
 
 ```go
 type PortfolioConstructor interface {
-    Construct(ctx context.Context, ranked []RankedStock) (*TargetPortfolio, error)
+    // ⭐ P0 수정: totalValue 파라미터 추가
+    // Portfolio는 목표 금액(TargetValue)만 산출, Execution이 현재가로 수량 계산
+    Construct(ctx context.Context, ranked []RankedStock, totalValue int64) (*TargetPortfolio, error)
 }
 ```
 
@@ -107,7 +136,8 @@ type PortfolioConfig struct {
     WeightingMode string  // "equal", "score_based", "risk_parity"
 }
 
-func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedStock) (*contracts.TargetPortfolio, error) {
+// ⭐ P0 수정: totalValue 파라미터로 TargetValue 계산
+func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedStock, totalValue int64) (*contracts.TargetPortfolio, error) {
     target := &contracts.TargetPortfolio{
         Date:      time.Now(),
         Positions: make([]contracts.TargetPosition, 0),
@@ -142,13 +172,16 @@ func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedSt
             continue
         }
 
+        // ⭐ TargetValue = Weight × TotalValue (수량은 Execution에서 계산)
+        targetValue := int64(float64(totalValue) * weight)
+
         target.Positions = append(target.Positions, contracts.TargetPosition{
-            Code:      code,
-            Name:      stock.Name,
-            Weight:    weight,
-            TargetQty: 0, // 계산 필요 (가격 정보 필요)
-            Action:    contracts.ActionBuy,
-            Reason:    c.getActionReason(stock),
+            Code:        code,
+            Name:        stock.Name,
+            Weight:      weight,
+            TargetValue: targetValue, // ⭐ 목표 금액 (원화)
+            Action:      contracts.ActionBuy,
+            Reason:      c.getActionReason(stock),
         })
     }
 
@@ -163,12 +196,15 @@ func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedSt
 
 func DefaultPortfolioConfig() PortfolioConfig {
     return PortfolioConfig{
-        MaxPositions:  20,    // 최대 20 종목
-        MaxWeight:     0.15,  // 최대 15%
-        MinWeight:     0.03,  // 최소 3%
-        CashReserve:   0.05,  // 5% 현금 보유
-        TurnoverLimit: 0.30,  // 30% 회전율 제한
-        WeightingMode: "equal", // 기본: 동일 비중
+        MaxPositions:  20,       // 최대 20 종목
+        MinPositions:  15,       // 최소 15 종목
+        MaxWeight:     0.10,     // 최대 10%
+        MinWeight:     0.04,     // 최소 4%
+        CashReserve:   0.10,     // 10% 현금 보유
+        SectorMaxPct:  0.25,     // 섹터당 최대 25%
+        TurnoverLimit: 0.20,     // 일 회전율 제한 20%
+        WeightingMode: "tiered", // 기본: Tiered Weighting
+        Tiers:         DefaultTiers(),
     }
 }
 ```
@@ -177,7 +213,57 @@ func DefaultPortfolioConfig() PortfolioConfig {
 
 ## Weight 계산 방식
 
-### Option 1: Equal Weight (동일 비중)
+### ⭐ Option 1: Tiered Weighting (기본값)
+
+YAML SSOT에서 정의된 기본 비중 배분 방식입니다.
+
+```go
+// tieredWeight calculates weights based on ranking tiers
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio.weighting.tiers
+// 기본: 1-5위 5%, 6-15위 4.5%, 16-20위 4% (총 90% 주식 + 10% 현금)
+func (c *Constructor) tieredWeight(stocks []contracts.RankedStock) map[string]float64 {
+    weights := make(map[string]float64)
+
+    // tier 설정이 없으면 기본값 사용
+    tiers := c.config.Tiers
+    if len(tiers) == 0 {
+        tiers = DefaultTiers()
+    }
+
+    // 각 tier별로 비중 할당
+    stockIdx := 0
+    for _, tier := range tiers {
+        for i := 0; i < tier.Count && stockIdx < len(stocks); i++ {
+            weights[stocks[stockIdx].Code] = tier.WeightEach
+            stockIdx++
+        }
+    }
+
+    return weights
+}
+
+// DefaultTiers returns default tier configuration
+func DefaultTiers() []TierConfig {
+    return []TierConfig{
+        {Count: 5, WeightEach: 0.05},   // 1-5위: 5% 각각
+        {Count: 10, WeightEach: 0.045}, // 6-15위: 4.5% 각각
+        {Count: 5, WeightEach: 0.04},   // 16-20위: 4% 각각
+    }
+    // 합: 5×5% + 10×4.5% + 5×4% = 25% + 45% + 20% = 90% (+ 현금 10% = 100%)
+}
+```
+
+**Tier별 비중 배분:**
+
+| 순위 | Tier | 종목 수 | 종목당 비중 | 합계 |
+|------|------|---------|------------|------|
+| 1-5위 | Tier 1 | 5개 | 5.0% | 25% |
+| 6-15위 | Tier 2 | 10개 | 4.5% | 45% |
+| 16-20위 | Tier 3 | 5개 | 4.0% | 20% |
+| **합계** | - | **20개** | - | **90%** |
+| 현금 | - | - | 10% | **10%** |
+
+### Option 2: Equal Weight (동일 비중)
 
 ```go
 func (c *Constructor) equalWeight(stocks []contracts.RankedStock) map[string]float64 {
@@ -193,7 +279,7 @@ func (c *Constructor) equalWeight(stocks []contracts.RankedStock) map[string]flo
 }
 ```
 
-### Option 2: Score-Based (점수 비례)
+### Option 3: Score-Based (점수 비례)
 
 ```go
 func (c *Constructor) scoreBasedWeight(stocks []contracts.RankedStock) map[string]float64 {
@@ -226,15 +312,7 @@ func (c *Constructor) scoreBasedWeight(stocks []contracts.RankedStock) map[strin
 }
 ```
 
-### Option 3: Risk Parity (리스크 패리티)
-
-```go
-func (c *Constructor) riskParityWeight(stocks []contracts.RankedStock) map[string]float64 {
-    // TODO: Implement risk parity (변동성 필요)
-    c.logger.Warn("Risk parity not implemented, using equal weight")
-    return c.equalWeight(stocks)
-}
-```
+### Option 4: Risk Parity (리스크 패리티)
 
 > Risk Parity는 변동성 데이터가 필요하므로 향후 구현 예정
 
@@ -258,9 +336,9 @@ func (c *Constraints) IsBlackListed(code string) bool {
 
 func DefaultConstraints() Constraints {
     return Constraints{
-        MaxSectorWeight: 0.30, // 섹터당 최대 30%
-        MaxWeight:       0.15, // 종목당 최대 15%
-        MinWeight:       0.03, // 종목당 최소 3%
+        MaxSectorWeight: 0.25, // 섹터당 최대 25%
+        MaxWeight:       0.10, // 종목당 최대 10%
+        MinWeight:       0.04, // 종목당 최소 4%
         BlackList:       []string{},
     }
 }
@@ -336,15 +414,16 @@ func (r *Repository) SaveTargetPortfolio(ctx context.Context, target *contracts.
     _, err = tx.Exec(ctx, "DELETE FROM portfolio.target_positions WHERE target_date = $1", target.Date)
 
     // Insert new positions
+    // ⭐ P0 수정: target_qty → target_value (목표 금액)
     query := `
         INSERT INTO portfolio.target_positions (
-            target_date, stock_code, stock_name, weight, target_qty, action, reason
+            target_date, stock_code, stock_name, weight, target_value, action, reason
         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
     `
 
     for _, pos := range target.Positions {
         _, err := tx.Exec(ctx, query,
-            target.Date, pos.Code, pos.Name, pos.Weight, pos.TargetQty, pos.Action, pos.Reason,
+            target.Date, pos.Code, pos.Name, pos.Weight, pos.TargetValue, pos.Action, pos.Reason,
         )
     }
 
@@ -368,8 +447,9 @@ func (r *Repository) SaveTargetPortfolio(ctx context.Context, target *contracts.
 }
 
 func (r *Repository) GetTargetPortfolio(ctx context.Context, date time.Time) (*contracts.TargetPortfolio, error) {
+    // ⭐ P0 수정: target_qty → target_value
     query := `
-        SELECT stock_code, stock_name, weight, target_qty, action, reason
+        SELECT stock_code, stock_name, weight, target_value, action, reason
         FROM portfolio.target_positions
         WHERE target_date = $1
         ORDER BY weight DESC
@@ -385,7 +465,7 @@ func (r *Repository) GetTargetPortfolio(ctx context.Context, date time.Time) (*c
 
     for rows.Next() {
         var pos contracts.TargetPosition
-        err := rows.Scan(&pos.Code, &pos.Name, &pos.Weight, &pos.TargetQty, &pos.Action, &pos.Reason)
+        err := rows.Scan(&pos.Code, &pos.Name, &pos.Weight, &pos.TargetValue, &pos.Action, &pos.Reason)
         portfolio.Positions = append(portfolio.Positions, pos)
     }
 
@@ -411,13 +491,15 @@ func (r *Repository) SaveRebalanceLog(ctx context.Context, log *RebalanceLog) er
 
 ```sql
 -- portfolio.target_positions: 목표 포트폴리오 포지션
+-- ⭐ P0 수정: target_qty → target_value (목표 금액)
+-- 수량(Qty)은 Execution(S6)에서 현재가로 계산
 CREATE TABLE portfolio.target_positions (
     id          SERIAL PRIMARY KEY,
     target_date DATE NOT NULL,
     stock_code  VARCHAR(10) NOT NULL,
     stock_name  VARCHAR(100),
     weight      DECIMAL(8,4),       -- 목표 비중
-    target_qty  INT,                -- 목표 수량
+    target_value BIGINT,            -- ⭐ 목표 금액 (원화). 수량은 S6에서 계산
     action      VARCHAR(10),        -- BUY, SELL, HOLD
     reason      TEXT,               -- 액션 사유
     created_at  TIMESTAMPTZ DEFAULT NOW(),

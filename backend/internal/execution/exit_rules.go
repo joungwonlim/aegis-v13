@@ -79,8 +79,9 @@ func (p *DBATRProvider) GetATR(ctx context.Context, code string, period int) (fl
 // =============================================================================
 
 // PriceProvider 현재가 조회 인터페이스
+// ⭐ P0 수정: float64로 통일 (Broker 인터페이스와 동일)
 type PriceProvider interface {
-	GetCurrentPrice(ctx context.Context, code string) (int64, error)
+	GetCurrentPrice(ctx context.Context, code string) (float64, error)
 }
 
 // =============================================================================
@@ -275,12 +276,16 @@ func (pm *PositionMonitor) GetRecentSignals(limit int) []*contracts.ExitSignal {
 // =============================================================================
 
 // CheckPosition 개별 포지션 체크 및 청산 신호 생성
+// ⭐ P0 수정: PriceProvider가 float64 반환, int64로 변환하여 사용
 func (pm *PositionMonitor) CheckPosition(ctx context.Context, pos *contracts.MonitoredPosition) ([]*contracts.ExitSignal, error) {
-	// 현재가 조회
-	currentPrice, err := pm.priceFunc.GetCurrentPrice(ctx, pos.Code)
+	// 현재가 조회 (float64)
+	currentPriceFloat, err := pm.priceFunc.GetCurrentPrice(ctx, pos.Code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get price for %s: %w", pos.Code, err)
 	}
+
+	// float64 → int64 변환 (한국 주식 가격은 정수)
+	currentPrice := int64(currentPriceFloat)
 
 	// 포지션 상태 업데이트
 	pos.CurrentPrice = currentPrice

@@ -92,7 +92,7 @@ type PortfolioItem struct {
 	StockName    string  `json:"stockName"`
 	Market       string  `json:"market"`
 	Weight       float64 `json:"weight"`
-	TargetQty    int     `json:"targetQty"`
+	TargetValue  int64   `json:"targetValue"` // ⭐ P0 수정: Qty → Value (금액)
 	Action       string  `json:"action"`
 	Reason       string  `json:"reason"`
 	CurrentPrice float64 `json:"currentPrice"`
@@ -677,7 +677,7 @@ func (h *PipelineHandler) GetPortfolio(w http.ResponseWriter, r *http.Request) {
 			COALESCE(NULLIF(p.stock_name, ''), s.name) as stock_name,
 			s.market,
 			p.weight::float8,
-			p.target_qty,
+			p.target_value,  -- ⭐ P0 수정: target_qty → target_value
 			p.action,
 			COALESCE(p.reason, '') as reason,
 			COALESCE(lp.close_price, 0) as current_price,
@@ -709,7 +709,7 @@ func (h *PipelineHandler) GetPortfolio(w http.ResponseWriter, r *http.Request) {
 			&item.StockName,
 			&item.Market,
 			&item.Weight,
-			&item.TargetQty,
+			&item.TargetValue, // ⭐ P0 수정: Qty → Value
 			&item.Action,
 			&item.Reason,
 			&item.CurrentPrice,

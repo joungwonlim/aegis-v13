@@ -14,9 +14,23 @@ description: S6 주문 실행
 
 목표 포트폴리오를 실제 주문으로 변환하고 체결 관리
 
+:::tip ⭐ P0 핵심 책임: 수량 계산
+Portfolio(S5)는 **목표 금액(TargetValue)**만 산출합니다.
+Execution(S6)은 **현재가를 조회하여 수량(Qty)을 계산**합니다.
+
+```
+Qty = TargetValue / CurrentPrice
+```
+
+이렇게 분리하는 이유:
+- Portfolio는 가격 변동에 독립적
+- 실제 주문 시점의 현재가로 정확한 수량 계산
+- 재현성: 같은 TargetValue로 언제든 수량 재계산 가능
+:::
+
 ---
 
-## 구현 상태 (2026-01-10)
+## 구현 상태 (2026-01-11)
 
 | 컴포넌트 | 상태 | 파일 |
 |---------|------|------|
@@ -75,9 +89,11 @@ description: S6 주문 실행
 
 ```
 internal/execution/
-├── planner.go      # ExecutionPlanner 구현
+├── planner.go      # ExecutionPlanner 구현 (수량 계산⭐)
 ├── broker.go       # 증권사 연동 (KIS)
-└── monitor.go      # 체결 모니터링
+├── monitor.go      # 체결 모니터링
+├── exit_rules.go   # 청산 규칙 (손절/익절/추세)
+└── repository.go   # DB 접근 (SSOT)
 ```
 
 ---
@@ -115,7 +131,10 @@ func (p *planner) Plan(ctx context.Context, target *contracts.TargetPortfolio) (
     // 1. 매도 주문 먼저 (자금 확보)
     for _, pos := range target.Positions {
         if pos.Action == contracts.ActionSell {
-            order := p.createSellOrder(pos)
+            order, err := p.createSellOrder(ctx, pos)
+            if err != nil {
+                return nil, err
+            }
             orders = append(orders, order)
         }
     }
@@ -123,7 +142,10 @@ func (p *planner) Plan(ctx context.Context, target *contracts.TargetPortfolio) (
     // 2. 매수 주문
     for _, pos := range target.Positions {
         if pos.Action == contracts.ActionBuy {
-            order := p.createBuyOrder(pos)
+            order, err := p.createBuyOrder(ctx, pos)
+            if err != nil {
+                return nil, err
+            }
             orders = append(orders, order)
         }
     }
@@ -131,17 +153,32 @@ func (p *planner) Plan(ctx context.Context, target *contracts.TargetPortfolio) (
     return orders, nil
 }
 
-func (p *planner) createBuyOrder(pos contracts.TargetPosition) contracts.Order {
-    price := p.getTargetPrice(pos.Code, "BUY")
+// ⭐ P0 핵심: TargetValue를 현재가로 나눠 수량 계산
+func (p *planner) createBuyOrder(ctx context.Context, pos contracts.TargetPosition) (contracts.Order, error) {
+    // 1. 현재가 조회
+    currentPrice, err := p.broker.GetCurrentPrice(ctx, pos.Code)
+    if err != nil {
+        return contracts.Order{}, fmt.Errorf("get price for %s: %w", pos.Code, err)
+    }
+
+    // 2. 수량 계산: Qty = TargetValue / CurrentPrice
+    qty := pos.CalculateQty(int64(currentPrice))
+    if qty <= 0 {
+        return contracts.Order{}, fmt.Errorf("calculated qty is zero for %s (value=%d, price=%.0f)",
+            pos.Code, pos.TargetValue, currentPrice)
+    }
+
+    // 3. 주문가 결정 (슬리피지 적용)
+    price := p.getTargetPrice(currentPrice, "BUY")
 
     return contracts.Order{
         Code:      pos.Code,
         Side:      "BUY",
-        Quantity:  pos.TargetQty,
+        Quantity:  qty,
         Price:     price,
         OrderType: p.config.OrderType,
         Status:    "PENDING",
-    }
+    }, nil
 }
 
 func (p *planner) getTargetPrice(code string, side string) int {
@@ -168,9 +205,10 @@ func (p *planner) getTargetPrice(code string, side string) int {
 ```go
 // internal/execution/broker.go
 
+// ⭐ P0 수정: 모든 메서드에 ctx 추가, 가격은 float64 반환
 type Broker interface {
-    // 현재가 조회
-    GetCurrentPrice(code string) int
+    // 현재가 조회 (float64로 통일, 호출자가 필요시 int64로 변환)
+    GetCurrentPrice(ctx context.Context, code string) (float64, error)
 
     // 주문 제출
     SubmitOrder(ctx context.Context, order *Order) (*OrderResult, error)
@@ -183,6 +221,9 @@ type Broker interface {
 
     // 잔고 조회
     GetBalance(ctx context.Context) (*Balance, error)
+
+    // 현재 보유 종목 조회
+    GetHoldings(ctx context.Context) ([]Holding, error)
 }
 ```
 
@@ -229,7 +270,15 @@ func (b *kisBroker) SubmitOrder(ctx context.Context, order *contracts.Order) (*c
 대량 주문 시 분할 처리:
 
 ```go
+// ⭐ P0 수정: Price=0 (시장가) 방어 코드 추가
 func (p *planner) splitOrder(order contracts.Order) []contracts.Order {
+    // 방어: 시장가 주문(Price=0)은 분할 불가
+    if order.Price <= 0 {
+        p.logger.Warn("Cannot split market order (price=0), returning as-is",
+            "code", order.Code)
+        return []contracts.Order{order}
+    }
+
     if order.Quantity * order.Price < p.config.SplitThreshold {
         return []contracts.Order{order}
     }
@@ -238,6 +287,13 @@ func (p *planner) splitOrder(order contracts.Order) []contracts.Order {
     chunks := make([]contracts.Order, 0)
     remaining := order.Quantity
     chunkSize := p.config.MaxOrderSize / order.Price
+
+    // 방어: chunkSize가 0이면 분할 불가
+    if chunkSize <= 0 {
+        p.logger.Warn("ChunkSize is zero, returning order as-is",
+            "code", order.Code, "maxOrderSize", p.config.MaxOrderSize)
+        return []contracts.Order{order}
+    }
 
     for remaining > 0 {
         qty := min(remaining, chunkSize)

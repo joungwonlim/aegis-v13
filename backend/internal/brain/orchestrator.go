@@ -322,21 +322,30 @@ func (o *Orchestrator) runS4(ctx context.Context, config RunConfig, stocks []str
 		return nil, fmt.Errorf("save ranking: %w", err)
 	}
 
-	o.logger.WithFields(map[string]interface{}{
-		"ranked_stocks": len(ranked),
-		"top_code":      ranked[0].Code,
-		"top_score":     ranked[0].TotalScore,
-	}).Info("S4 completed")
+	// Log result (handle empty case)
+	if len(ranked) > 0 {
+		o.logger.WithFields(map[string]interface{}{
+			"ranked_stocks": len(ranked),
+			"top_code":      ranked[0].Code,
+			"top_score":     ranked[0].TotalScore,
+		}).Info("S4 completed")
+	} else {
+		o.logger.WithFields(map[string]interface{}{
+			"ranked_stocks": 0,
+		}).Warn("S4 completed with no ranked stocks")
+	}
 
 	return ranked, nil
 }
 
 // runS5 executes S5: Portfolio Construction
+// ⭐ P0 수정: capital을 totalValue로 Construct에 전달
 func (o *Orchestrator) runS5(ctx context.Context, config RunConfig, ranked []contracts.RankedStock, capital int64) (*contracts.TargetPortfolio, error) {
 	o.logger.Info("Running S5: Portfolio Construction")
 
 	// Build target portfolio using Constructor.Construct
-	targetPortfolio, err := o.portfolioBuilder.Construct(ctx, ranked)
+	// capital을 전달하여 TargetValue 계산 (TargetValue = Weight × capital)
+	targetPortfolio, err := o.portfolioBuilder.Construct(ctx, ranked, capital)
 	if err != nil {
 		return nil, fmt.Errorf("portfolio construct: %w", err)
 	}
@@ -371,8 +380,11 @@ func (o *Orchestrator) runS6(ctx context.Context, config RunConfig, targetPortfo
 		CreatedAt: time.Now(),
 	}
 
-	// Save each order
+	// Save each order (generate order ID if not set)
 	for i := range executionPlan.Orders {
+		if executionPlan.Orders[i].ID == "" {
+			executionPlan.Orders[i].ID = fmt.Sprintf("%s_order_%d", config.RunID, i+1)
+		}
 		if err := o.executionRepo.SaveOrder(ctx, &executionPlan.Orders[i]); err != nil {
 			return nil, fmt.Errorf("save order: %w", err)
 		}

@@ -18,13 +18,24 @@ type Constructor struct {
 }
 
 // PortfolioConfig defines portfolio construction parameters
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio 섹션
 type PortfolioConfig struct {
-	MaxPositions  int     // 최대 종목 수
-	MaxWeight     float64 // 종목당 최대 비중 (0.0 ~ 1.0)
-	MinWeight     float64 // 종목당 최소 비중 (0.0 ~ 1.0)
-	CashReserve   float64 // 현금 보유 비중 (0.0 ~ 1.0)
-	TurnoverLimit float64 // 회전율 제한 (0.0 ~ 1.0)
-	WeightingMode string  // "equal", "score_based", "risk_parity"
+	MaxPositions  int     // 최대 종목 수 (기본: 20)
+	MinPositions  int     // 최소 종목 수 (기본: 15)
+	MaxWeight     float64 // 종목당 최대 비중 (기본: 0.10)
+	MinWeight     float64 // 종목당 최소 비중 (기본: 0.04)
+	CashReserve   float64 // 현금 보유 비중 (기본: 0.10)
+	SectorMaxPct  float64 // 섹터당 최대 비중 (기본: 0.25)
+	TurnoverLimit float64 // 일 회전율 제한 (기본: 0.20)
+	WeightingMode string  // "equal", "score_based", "tiered"
+	Tiers         []TierConfig // Tiered Weighting 설정
+}
+
+// TierConfig defines a weight tier
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio.weighting.tiers
+type TierConfig struct {
+	Count       int     // 이 tier에 포함될 종목 수
+	WeightEach  float64 // 종목당 비중 (0.0 ~ 1.0)
 }
 
 // NewConstructor creates a new portfolio constructor
@@ -37,7 +48,9 @@ func NewConstructor(config PortfolioConfig, constraints Constraints, logger *log
 }
 
 // Construct constructs target portfolio from ranked stocks
-func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedStock) (*contracts.TargetPortfolio, error) {
+// totalValue: 전체 포트폴리오 가치 (원화). 0이면 TargetValue 계산 불가
+// ⭐ 계약: TargetValue = Weight × totalValue. Execution(S6)이 수량으로 변환
+func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedStock, totalValue int64) (*contracts.TargetPortfolio, error) {
 	target := &contracts.TargetPortfolio{
 		Date:      time.Now(),
 		Positions: make([]contracts.TargetPosition, 0),
@@ -72,13 +85,17 @@ func (c *Constructor) Construct(ctx context.Context, ranked []contracts.RankedSt
 			continue
 		}
 
+		// TargetValue = Weight × totalValue
+		// ⭐ Execution(S6)에서 현재가로 수량 계산
+		targetValue := int64(float64(totalValue) * weight)
+
 		target.Positions = append(target.Positions, contracts.TargetPosition{
-			Code:      code,
-			Name:      stock.Name,
-			Weight:    weight,
-			TargetQty: 0, // 계산 필요 (가격 정보 필요)
-			Action:    contracts.ActionBuy,
-			Reason:    c.getActionReason(stock),
+			Code:        code,
+			Name:        stock.Name,
+			Weight:      weight,
+			TargetValue: targetValue,
+			Action:      contracts.ActionBuy,
+			Reason:      c.getActionReason(stock),
 		})
 	}
 
@@ -108,6 +125,8 @@ func (c *Constructor) calculateWeights(stocks []contracts.RankedStock) map[strin
 		return c.equalWeight(stocks)
 	case "score_based":
 		return c.scoreBasedWeight(stocks)
+	case "tiered", "TIERED":
+		return c.tieredWeight(stocks)
 	case "risk_parity":
 		// TODO: Implement risk parity (변동성 필요)
 		c.logger.Warn("Risk parity not implemented, using equal weight")
@@ -158,6 +177,55 @@ func (c *Constructor) scoreBasedWeight(stocks []contracts.RankedStock) map[strin
 	}
 
 	return weights
+}
+
+// tieredWeight calculates weights based on ranking tiers
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio.weighting.tiers
+// 기본: 1-5위 5%, 6-15위 4.5%, 16-20위 4% (총 90% 주식 + 10% 현금)
+func (c *Constructor) tieredWeight(stocks []contracts.RankedStock) map[string]float64 {
+	weights := make(map[string]float64)
+
+	// tier 설정이 없으면 기본값 사용
+	tiers := c.config.Tiers
+	if len(tiers) == 0 {
+		tiers = DefaultTiers()
+	}
+
+	// 각 tier별로 비중 할당
+	stockIdx := 0
+	for _, tier := range tiers {
+		for i := 0; i < tier.Count && stockIdx < len(stocks); i++ {
+			weights[stocks[stockIdx].Code] = tier.WeightEach
+			stockIdx++
+		}
+	}
+
+	// 남은 종목이 있으면 마지막 tier 비중으로 할당
+	if stockIdx < len(stocks) && len(tiers) > 0 {
+		lastTierWeight := tiers[len(tiers)-1].WeightEach
+		for ; stockIdx < len(stocks); stockIdx++ {
+			weights[stocks[stockIdx].Code] = lastTierWeight
+		}
+	}
+
+	c.logger.WithFields(map[string]interface{}{
+		"mode":         "tiered",
+		"total_stocks": len(weights),
+		"tiers":        len(tiers),
+	}).Debug("Tiered weights calculated")
+
+	return weights
+}
+
+// DefaultTiers returns default tier configuration
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio.weighting.tiers
+// 합: 5×5% + 10×4.5% + 5×4% = 25% + 45% + 20% = 90% (+ 현금 10% = 100%)
+func DefaultTiers() []TierConfig {
+	return []TierConfig{
+		{Count: 5, WeightEach: 0.05},   // 1-5위: 5% 각각
+		{Count: 10, WeightEach: 0.045}, // 6-15위: 4.5% 각각
+		{Count: 5, WeightEach: 0.04},   // 16-20위: 4% 각각
+	}
 }
 
 // applyConstraints applies portfolio constraints to weights
@@ -243,13 +311,17 @@ func (c *Constructor) getActionReason(stock *contracts.RankedStock) string {
 }
 
 // DefaultPortfolioConfig returns default configuration
+// SSOT: config/strategy/korea_equity_v13.yaml portfolio 섹션
 func DefaultPortfolioConfig() PortfolioConfig {
 	return PortfolioConfig{
-		MaxPositions:  20,    // 최대 20 종목
-		MaxWeight:     0.15,  // 최대 15%
-		MinWeight:     0.03,  // 최소 3%
-		CashReserve:   0.05,  // 5% 현금 보유
-		TurnoverLimit: 0.30,  // 30% 회전율 제한
-		WeightingMode: "equal", // 기본: 동일 비중
+		MaxPositions:  20,       // 최대 20 종목
+		MinPositions:  15,       // 최소 15 종목
+		MaxWeight:     0.10,     // 최대 10%
+		MinWeight:     0.04,     // 최소 4%
+		CashReserve:   0.10,     // 10% 현금 보유
+		SectorMaxPct:  0.25,     // 섹터당 최대 25%
+		TurnoverLimit: 0.20,     // 일 회전율 제한 20%
+		WeightingMode: "tiered", // 기본: Tiered Weighting
+		Tiers:         DefaultTiers(),
 	}
 }

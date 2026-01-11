@@ -112,11 +112,12 @@ backend/
 │
 ├── internal/                  # 비공개 비즈니스 로직
 │   ├── contracts/            # ⭐ 타입/인터페이스 SSOT
+│   │   ├── pipeline.go       # Stage enum (S0~S7 SSOT 정의) ⭐
 │   │   ├── data.go           # DataQualitySnapshot (S0→S1)
 │   │   ├── universe.go       # Universe (S1→S2)
 │   │   ├── signals.go        # SignalSet, StockSignals (S2→S3/S4)
 │   │   ├── ranked.go         # RankedStock (S4→S5)
-│   │   ├── portfolio.go      # TargetPortfolio (S5→S6)
+│   │   ├── portfolio.go      # TargetPortfolio (S5→S6) - TargetValue 기반
 │   │   ├── order.go          # Order (S6→Broker)
 │   │   ├── audit.go          # PerformanceReport (S7)
 │   │   ├── forecast.go       # ForecastEvent, ForecastStats (예측)
@@ -273,10 +274,11 @@ backend/
 ┌───────────────┐           ┌───────────────┐
 │ S6: Execution │──────────▶│  S7: Audit    │
 ├───────────────┤           ├───────────────┤
-│ • 주문 생성   │           │ • 수익률 분석 │
-│ • 매도 우선   │           │ • 리스크 지표 │
-│ • 슬리피지    │           │ • 팩터 기여도 │
-│ • 분할 주문   │           │ • 벤치마크    │
+│ • 수량 계산⭐  │           │ • 수익률 분석 │
+│ • 주문 생성   │           │ • 리스크 지표 │
+│ • 매도 우선   │           │ • 팩터 기여도 │
+│ • 슬리피지    │           │ • 벤치마크    │
+│ • 분할 주문   │           │               │
 └───────────────┘           └───────────────┘
         │                           │
         │ Order[]                   │ PerformanceReport
@@ -337,7 +339,7 @@ make build
 
 | 커맨드 | 용도 | 예시 |
 |--------|------|------|
-| `api` | API 서버 실행 | `go run ./cmd/quant api --port 8080` |
+| `api` | API 서버 실행 | `go run ./cmd/quant api --port 8089` |
 | `fetcher` | 데이터 수집 (KIS, DART, Naver) | `go run ./cmd/quant fetcher collect all` |
 | `worker` | 백그라운드 워커 시작 | `go run ./cmd/quant worker start` |
 | `status` | 큐 상태 모니터링 | `go run ./cmd/quant status start` |
@@ -349,7 +351,7 @@ make build
 ```bash
 # API 서버 실행
 go run ./cmd/quant api
-go run ./cmd/quant api --port 8080 --env production
+go run ./cmd/quant api --port 8089 --env production
 
 # 데이터 수집
 go run ./cmd/quant fetcher collect --source kis

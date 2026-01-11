@@ -79,12 +79,12 @@ func TestTargetPortfolio_JSON(t *testing.T) {
 		Date: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
 		Positions: []TargetPosition{
 			{
-				Code:      "005930",
-				Name:      "Samsung",
-				Weight:    0.30,
-				TargetQty: 100,
-				Action:    ActionBuy,
-				Reason:    "Strong momentum",
+				Code:        "005930",
+				Name:        "Samsung",
+				Weight:      0.30,
+				TargetValue: 5_000_000, // 500만원 (수량은 Execution에서 계산)
+				Action:      ActionBuy,
+				Reason:      "Strong momentum",
 			},
 		},
 		Cash: 0.25,

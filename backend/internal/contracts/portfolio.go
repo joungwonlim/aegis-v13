@@ -11,13 +11,24 @@ type TargetPortfolio struct {
 }
 
 // TargetPosition represents a target position in the portfolio
+// ⭐ 계약: Portfolio(S5)는 Weight/TargetValue만 산출, Execution(S6)이 수량 계산
 type TargetPosition struct {
-	Code      string  `json:"code"`
-	Name      string  `json:"name"`
-	Weight    float64 `json:"weight"`     // 목표 비중 (0.0 ~ 1.0)
-	TargetQty int     `json:"target_qty"` // 목표 수량
-	Action    Action  `json:"action"`     // BUY, SELL, HOLD
-	Reason    string  `json:"reason"`     // 매수/매도 사유
+	Code        string  `json:"code"`
+	Name        string  `json:"name"`
+	Weight      float64 `json:"weight"`       // 목표 비중 (0.0 ~ 1.0)
+	TargetValue int64   `json:"target_value"` // 목표 금액 (원화), Execution이 수량 계산
+	Action      Action  `json:"action"`       // BUY, SELL, HOLD
+	Reason      string  `json:"reason"`       // 매수/매도 사유
+}
+
+// CalculateQty calculates target quantity based on price
+// ⭐ 이 함수는 Execution 레이어에서 호출해야 함
+// price가 0이거나 음수면 0 반환 (fail-closed)
+func (tp *TargetPosition) CalculateQty(price int64) int {
+	if price <= 0 || tp.TargetValue <= 0 {
+		return 0
+	}
+	return int(tp.TargetValue / price)
 }
 
 // Action represents the action to take for a position

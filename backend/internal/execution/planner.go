@@ -78,8 +78,23 @@ func (p *Planner) Plan(ctx context.Context, target *contracts.TargetPortfolio) (
 }
 
 // createBuyOrder creates a buy order from target position
+// ⭐ P0 수정: TargetValue에서 수량 계산 (0 수량 방지)
 func (p *Planner) createBuyOrder(ctx context.Context, pos contracts.TargetPosition) (contracts.Order, error) {
-	price, err := p.getTargetPrice(ctx, pos.Code, contracts.OrderSideBuy)
+	// 1. 현재가 조회
+	currentPrice, err := p.broker.GetCurrentPrice(ctx, pos.Code)
+	if err != nil {
+		return contracts.Order{}, fmt.Errorf("failed to get current price: %w", err)
+	}
+
+	// 2. 수량 계산 (TargetValue / 현재가)
+	// ⭐ 계약: Portfolio는 TargetValue만 제공, Execution이 수량 계산
+	qty := pos.CalculateQty(int64(currentPrice))
+	if qty <= 0 {
+		return contracts.Order{}, fmt.Errorf("calculated qty is zero (targetValue=%d, price=%.0f)", pos.TargetValue, currentPrice)
+	}
+
+	// 3. 주문가격 결정 (지정가/시장가)
+	orderPrice, err := p.getTargetPrice(ctx, pos.Code, contracts.OrderSideBuy)
 	if err != nil {
 		return contracts.Order{}, fmt.Errorf("failed to get target price: %w", err)
 	}
@@ -88,8 +103,8 @@ func (p *Planner) createBuyOrder(ctx context.Context, pos contracts.TargetPositi
 		Code:      pos.Code,
 		Name:      pos.Name,
 		Side:      contracts.OrderSideBuy,
-		Qty:       pos.TargetQty,
-		Price:     price,
+		Qty:       qty,
+		Price:     orderPrice,
 		OrderType: p.config.OrderType,
 		Status:    contracts.StatusPending,
 		CreatedAt: time.Now(),
@@ -98,8 +113,22 @@ func (p *Planner) createBuyOrder(ctx context.Context, pos contracts.TargetPositi
 }
 
 // createSellOrder creates a sell order from target position
+// ⭐ P0 수정: TargetValue에서 수량 계산 (0 수량 방지)
 func (p *Planner) createSellOrder(ctx context.Context, pos contracts.TargetPosition) (contracts.Order, error) {
-	price, err := p.getTargetPrice(ctx, pos.Code, contracts.OrderSideSell)
+	// 1. 현재가 조회
+	currentPrice, err := p.broker.GetCurrentPrice(ctx, pos.Code)
+	if err != nil {
+		return contracts.Order{}, fmt.Errorf("failed to get current price: %w", err)
+	}
+
+	// 2. 수량 계산 (TargetValue / 현재가)
+	qty := pos.CalculateQty(int64(currentPrice))
+	if qty <= 0 {
+		return contracts.Order{}, fmt.Errorf("calculated qty is zero (targetValue=%d, price=%.0f)", pos.TargetValue, currentPrice)
+	}
+
+	// 3. 주문가격 결정 (지정가/시장가)
+	orderPrice, err := p.getTargetPrice(ctx, pos.Code, contracts.OrderSideSell)
 	if err != nil {
 		return contracts.Order{}, fmt.Errorf("failed to get target price: %w", err)
 	}
@@ -108,8 +137,8 @@ func (p *Planner) createSellOrder(ctx context.Context, pos contracts.TargetPosit
 		Code:      pos.Code,
 		Name:      pos.Name,
 		Side:      contracts.OrderSideSell,
-		Qty:       pos.TargetQty,
-		Price:     price,
+		Qty:       qty,
+		Price:     orderPrice,
 		OrderType: p.config.OrderType,
 		Status:    contracts.StatusPending,
 		CreatedAt: time.Now(),
@@ -138,7 +167,18 @@ func (p *Planner) getTargetPrice(ctx context.Context, code string, side contract
 }
 
 // splitOrder splits large order into smaller chunks
+// ⭐ P0 수정: Price=0(시장가)일 때 0 나눗셈 방지
 func (p *Planner) splitOrder(order contracts.Order) []contracts.Order {
+	// 시장가 주문(Price=0)이면 분할 불가 - 그대로 반환
+	if order.Price <= 0 {
+		p.logger.WithFields(map[string]interface{}{
+			"code":  order.Code,
+			"qty":   order.Qty,
+			"price": order.Price,
+		}).Warn("Cannot split market order (price=0), returning as-is")
+		return []contracts.Order{order}
+	}
+
 	orderValue := int64(order.Qty) * int64(order.Price)
 
 	if orderValue < p.config.SplitThreshold {
@@ -149,6 +189,16 @@ func (p *Planner) splitOrder(order contracts.Order) []contracts.Order {
 	chunks := make([]contracts.Order, 0)
 	remaining := order.Qty
 	chunkSize := int(p.config.MaxOrderSize / int64(order.Price))
+
+	// chunkSize가 0이면 분할 불가 (MaxOrderSize < Price)
+	if chunkSize <= 0 {
+		p.logger.WithFields(map[string]interface{}{
+			"code":         order.Code,
+			"price":        order.Price,
+			"maxOrderSize": p.config.MaxOrderSize,
+		}).Warn("chunkSize is zero, returning order as-is")
+		return []contracts.Order{order}
+	}
 
 	for remaining > 0 {
 		qty := remaining
@@ -161,6 +211,14 @@ func (p *Planner) splitOrder(order contracts.Order) []contracts.Order {
 		chunks = append(chunks, chunk)
 		remaining -= qty
 	}
+
+	p.logger.WithFields(map[string]interface{}{
+		"code":       order.Code,
+		"totalQty":   order.Qty,
+		"chunks":     len(chunks),
+		"chunkSize":  chunkSize,
+		"orderValue": orderValue,
+	}).Debug("Order split into chunks")
 
 	return chunks
 }
