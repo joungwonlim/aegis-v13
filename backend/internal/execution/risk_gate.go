@@ -153,13 +153,19 @@ func (g *RiskGate) Check(ctx context.Context, input GateCheckInput) (*GateCheckR
 	result.RiskCheck = riskCheck
 
 	// 4. 결과 판정
-	if riskCheck.Passed {
+	// 주의: riskCheck.Passed는 BLOCK 위반만 체크함
+	// Enforce 모드에서는 WARNING 위반도 처리해야 하므로 violations 길이로 판단
+	hasViolations := len(riskCheck.Violations) > 0
+
+	if !hasViolations {
+		// 위반 없음: 무조건 통과
 		result.Passed = true
 		result.Action = GateActionPass
 		result.WouldBlock = false
 		result.Message = "All risk checks passed"
 	} else {
-		result.WouldBlock = true
+		// 위반 있음: 모드에 따라 처리
+		result.WouldBlock = !riskCheck.Passed // BLOCK 위반이 있으면 차단했을 것
 		result.BlockedOrders = g.getBlockedOrderCodes(input.Orders, riskCheck)
 		result.Message = g.buildBlockMessage(riskCheck)
 
