@@ -220,6 +220,143 @@ func (h *DataHandler) Collect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetDataStats returns data statistics for all tables
+// GET /api/data/stats
+func (h *DataHandler) GetDataStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	stats := make(map[string]interface{})
+
+	// 1. Stocks count
+	stockStats := make(map[string]int)
+	var total, kospi, kosdaq, active int
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.stocks`).Scan(&total)
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.stocks WHERE market = 'KOSPI'`).Scan(&kospi)
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.stocks WHERE market = 'KOSDAQ'`).Scan(&kosdaq)
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.stocks WHERE status = 'active'`).Scan(&active)
+	stockStats["total"] = total
+	stockStats["kospi"] = kospi
+	stockStats["kosdaq"] = kosdaq
+	stockStats["active"] = active
+	stats["stocks"] = stockStats
+
+	// 2. Price data
+	priceStats := make(map[string]interface{})
+	var priceCount int64
+	var priceStockCount, count60, count120 int
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.daily_prices`).Scan(&priceCount)
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(DISTINCT stock_code) FROM data.daily_prices`).Scan(&priceStockCount)
+	h.dataRepo.Pool().QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT stock_code FROM data.daily_prices GROUP BY stock_code HAVING COUNT(*) >= 60
+		) t
+	`).Scan(&count60)
+	h.dataRepo.Pool().QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT stock_code FROM data.daily_prices GROUP BY stock_code HAVING COUNT(*) >= 120
+		) t
+	`).Scan(&count120)
+	priceStats["totalRecords"] = priceCount
+	priceStats["stockCount"] = priceStockCount
+	priceStats["stocksWith60Days"] = count60
+	priceStats["stocksWith120Days"] = count120
+	priceStats["signalReady"] = map[string]interface{}{
+		"momentum":  count60 > 0,
+		"technical": count120 > 0,
+	}
+	stats["prices"] = priceStats
+
+	// 3. Investor flow data
+	flowStats := make(map[string]interface{})
+	var flowCount int64
+	var flowStockCount, count20 int
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.investor_flow`).Scan(&flowCount)
+	h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(DISTINCT stock_code) FROM data.investor_flow`).Scan(&flowStockCount)
+	h.dataRepo.Pool().QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT stock_code FROM data.investor_flow GROUP BY stock_code HAVING COUNT(*) >= 20
+		) t
+	`).Scan(&count20)
+	flowStats["totalRecords"] = flowCount
+	flowStats["stockCount"] = flowStockCount
+	flowStats["stocksWith20Days"] = count20
+	flowStats["signalReady"] = flowCount > 0 && count20 > 0
+	stats["investorFlow"] = flowStats
+
+	// 4. Fundamentals data (재무 데이터)
+	financialStats := make(map[string]interface{})
+	var finCount int64
+	var finStockCount int
+	err := h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.fundamentals`).Scan(&finCount)
+	if err != nil {
+		financialStats["error"] = "table not found"
+		financialStats["signalReady"] = false
+	} else {
+		h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(DISTINCT stock_code) FROM data.fundamentals`).Scan(&finStockCount)
+		financialStats["totalRecords"] = finCount
+		financialStats["stockCount"] = finStockCount
+		financialStats["signalReady"] = finCount > 0
+	}
+	stats["financials"] = financialStats
+
+	// 5. Disclosures data
+	disclosureStats := make(map[string]interface{})
+	var discCount int64
+	var discStockCount int
+	err = h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM data.disclosures`).Scan(&discCount)
+	if err != nil {
+		disclosureStats["error"] = "table not found"
+		disclosureStats["signalReady"] = false
+	} else {
+		h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(DISTINCT stock_code) FROM data.disclosures`).Scan(&discStockCount)
+		disclosureStats["totalRecords"] = discCount
+		disclosureStats["stockCount"] = discStockCount
+		disclosureStats["signalReady"] = discCount > 0
+	}
+	stats["disclosures"] = disclosureStats
+
+	// 6. Signals summary
+	signalStats := make(map[string]interface{})
+	var sigCount int64
+	err = h.dataRepo.Pool().QueryRow(ctx, `SELECT COUNT(*) FROM signals.factor_scores`).Scan(&sigCount)
+	if err != nil {
+		signalStats["error"] = "table not found"
+	} else {
+		var avgMom, avgTech, avgVal, avgQual, avgFlow, avgEvt float64
+		h.dataRepo.Pool().QueryRow(ctx, `
+			SELECT AVG(momentum), AVG(technical), AVG(value), AVG(quality), AVG(flow), AVG(event)
+			FROM signals.factor_scores
+			WHERE calc_date = (SELECT MAX(calc_date) FROM signals.factor_scores)
+		`).Scan(&avgMom, &avgTech, &avgVal, &avgQual, &avgFlow, &avgEvt)
+
+		signalStats["totalRecords"] = sigCount
+		signalStats["averages"] = map[string]float64{
+			"momentum":  avgMom,
+			"technical": avgTech,
+			"value":     avgVal,
+			"quality":   avgQual,
+			"flow":      avgFlow,
+			"event":     avgEvt,
+		}
+	}
+	stats["signals"] = signalStats
+
+	// Summary
+	stats["signalDataStatus"] = map[string]interface{}{
+		"momentum":  count60 > 0,
+		"technical": count120 > 0,
+		"value":     finCount > 0,
+		"quality":   finCount > 0,
+		"flow":      count20 > 0,
+		"event":     discCount > 0,
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    stats,
+	})
+}
+
 // Helper functions
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

@@ -16,6 +16,8 @@ import (
 	"github.com/wonny/aegis/v13/backend/internal/external/kis"
 	"github.com/wonny/aegis/v13/backend/internal/external/krx"
 	"github.com/wonny/aegis/v13/backend/internal/external/naver"
+	"github.com/wonny/aegis/v13/backend/internal/forecast"
+	"github.com/wonny/aegis/v13/backend/internal/portfolio"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data/collector"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data/quality"
@@ -60,9 +62,20 @@ Endpoints:
   POST /api/trading/ws/subscribe    - 실시간 구독
   POST /api/trading/ws/unsubscribe  - 구독 해제
 
+  Exit Monitoring:
+  PATCH /api/trading/positions/{stock_code}/exit-monitoring - 청산 모니터링 설정
+  GET   /api/trading/exit-monitoring                        - 모니터링 상태 조회
+
+  Stocklist (Watchlist):
+  GET    /api/v1/watchlist          - 전체 관심종목 조회
+  GET    /api/v1/watchlist/{category} - 카테고리별 조회 (watch/candidate)
+  POST   /api/v1/watchlist          - 관심종목 추가
+  PUT    /api/v1/watchlist/{id}     - 관심종목 수정
+  DELETE /api/v1/watchlist/{id}     - 관심종목 삭제
+
 Example:
   go run ./cmd/quant api
-  go run ./cmd/quant api --port 8080`,
+  go run ./cmd/quant api --port 8089`,
 	RunE: runAPIServer,
 }
 
@@ -74,7 +87,7 @@ func init() {
 	rootCmd.AddCommand(apiCmd)
 
 	// Flags
-	apiCmd.Flags().StringVar(&apiPort, "port", "8080", "API 서버 포트")
+	apiCmd.Flags().StringVar(&apiPort, "port", "8089", "API 서버 포트")
 }
 
 func runAPIServer(cmd *cobra.Command, args []string) error {
@@ -90,6 +103,9 @@ func runAPIServer(cmd *cobra.Command, args []string) error {
 	if apiPort != "" {
 		cfg.Port = apiPort
 	}
+
+	// 1.5. Kill existing process on port (for hot reload)
+	_ = killProcessOnPort(cfg.Port)
 
 	// 2. Initialize logger
 	log := logger.New(cfg)
@@ -119,6 +135,9 @@ func runAPIServer(cmd *cobra.Command, args []string) error {
 	// 6. Create repositories
 	dataRepo := s0_data.NewRepository(db.Pool)
 	universeRepo := s1_universe.NewRepository(db.Pool)
+	portfolioRepo := portfolio.NewRepository(db.Pool)
+	priceRepo := s0_data.NewPriceRepository(db.Pool)
+	investorFlowRepo := s0_data.NewInvestorFlowRepository(db.Pool)
 
 	// 7. Create quality gate
 	qualityConfig := quality.Config{
@@ -151,17 +170,28 @@ func runAPIServer(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	// 11. Create handlers
+	// 11. Create forecast components
+	forecastRepo := forecast.NewRepository(db.Pool)
+	forecastDetector := forecast.NewDetector(log.Zerolog())
+	forecastAggregator := forecast.NewAggregator(log.Zerolog())
+	forecastPredictor := forecast.NewPredictor(forecastRepo, log.Zerolog())
+
+	// 12. Create handlers
 	dataHandler := handlers.NewDataHandler(dataRepo, universeRepo, col, qualityGate, log)
-	tradingHandler := handlers.NewTradingHandler(kisClient, kisWSClient, log)
+	tradingHandler := handlers.NewTradingHandler(kisClient, kisWSClient, portfolioRepo, log)
+	stocklistHandler := handlers.NewStocklistHandler(portfolioRepo, log)
+	stockHandler := handlers.NewStockHandler(priceRepo, investorFlowRepo, dataRepo, log)
+	rankingHandler := handlers.NewRankingHandler(db.Pool, naverClient, log)
+	pipelineHandler := handlers.NewPipelineHandler(db.Pool, log)
+	forecastHandler := handlers.NewForecastHandler(forecastRepo, priceRepo, forecastDetector, forecastPredictor, forecastAggregator, log)
 
-	// 12. Create router
-	router := api.NewRouter(dataHandler, tradingHandler, log)
+	// 13. Create router
+	router := api.NewRouter(dataHandler, tradingHandler, stocklistHandler, stockHandler, rankingHandler, pipelineHandler, forecastHandler, log)
 
-	// 13. Create server
+	// 14. Create server
 	server := api.New(cfg, log, router)
 
-	// 14. Start server with graceful shutdown
+	// 15. Start server with graceful shutdown
 	go func() {
 		if err := server.Start(); err != nil {
 			log.WithError(err).Fatal("Failed to start server")
@@ -181,6 +211,12 @@ func runAPIServer(cmd *cobra.Command, args []string) error {
 	fmt.Println("  GET  /api/trading/orders")
 	fmt.Println("  POST /api/trading/orders")
 	fmt.Println("  GET  /api/trading/price?stock_code=005930")
+	fmt.Println("\nStocklist endpoints:")
+	fmt.Println("  GET    /api/v1/watchlist")
+	fmt.Println("  GET    /api/v1/watchlist/{category}")
+	fmt.Println("  POST   /api/v1/watchlist")
+	fmt.Println("  PUT    /api/v1/watchlist/{id}")
+	fmt.Println("  DELETE /api/v1/watchlist/{id}")
 	fmt.Println("\nPress Ctrl+C to stop")
 
 	// Wait for interrupt signal

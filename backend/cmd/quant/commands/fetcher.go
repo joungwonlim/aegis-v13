@@ -56,6 +56,20 @@ Example:
 	RunE: runFetcherCollect,
 }
 
+// fetcherMarketCapCmd represents the marketcap subcommand
+var fetcherMarketCapCmd = &cobra.Command{
+	Use:   "marketcap",
+	Short: "시가총액/상장주식수 데이터 수집",
+	Long: `모든 종목의 시가총액 및 상장주식수 데이터를 수집합니다.
+
+KRX API에서 KOSPI/KOSDAQ 전 종목의 시가총액과 상장주식수를 수집하여
+data.market_cap 테이블에 저장합니다.
+
+Example:
+  go run ./cmd/quant fetcher marketcap`,
+	RunE: runFetcherMarketCap,
+}
+
 var (
 	// Fetcher flags
 	fetcherAsync bool
@@ -64,9 +78,30 @@ var (
 func init() {
 	rootCmd.AddCommand(fetcherCmd)
 	fetcherCmd.AddCommand(fetcherCollectCmd)
+	fetcherCmd.AddCommand(fetcherMarketCapCmd)
 
 	// Flags
 	fetcherCollectCmd.Flags().BoolVar(&fetcherAsync, "async", false, "비동기 수집 (큐에 작업 추가)")
+}
+
+// runFetcherMarketCap collects market cap data from Naver Finance
+func runFetcherMarketCap(cmd *cobra.Command, args []string) error {
+	fmt.Printf("=== Aegis v13 Market Cap Fetcher ===\n\n")
+	fmt.Println("💰 시가총액/상장주식수 데이터 수집 시작... (Naver Finance)")
+
+	// Initialize collector
+	col, ctx, err := initCollector()
+	if err != nil {
+		return fmt.Errorf("init collector: %w", err)
+	}
+
+	// Fetch market caps from Naver (includes shares outstanding)
+	if err := col.FetchMarketCaps(ctx); err != nil {
+		return fmt.Errorf("fetch market caps: %w", err)
+	}
+
+	fmt.Println("\n✅ 시가총액/상장주식수 데이터 수집 완료!")
+	return nil
 }
 
 func runFetcherCollect(cmd *cobra.Command, args []string) error {

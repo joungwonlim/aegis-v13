@@ -51,6 +51,7 @@ func NewRouter(dataHandler *handlers.DataHandler, tradingHandler *handlers.Tradi
 	// Stock data endpoints
 	api.HandleFunc("/stocks/{code}/daily", stockHandler.GetDailyPrices).Methods("GET")
 	api.HandleFunc("/stocks/{code}/investor-trading", stockHandler.GetInvestorTrading).Methods("GET")
+	api.HandleFunc("/stocks/{code}/description", stockHandler.GetStockDescription).Methods("GET")
 
 	// Stocklist (Watchlist) endpoints - v1 API
 	api.HandleFunc("/v1/watchlist", stocklistHandler.GetWatchlist).Methods("GET")

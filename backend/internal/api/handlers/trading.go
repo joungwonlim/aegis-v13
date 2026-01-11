@@ -3,25 +3,31 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/wonny/aegis/v13/backend/internal/external/kis"
+	"github.com/wonny/aegis/v13/backend/internal/portfolio"
 	"github.com/wonny/aegis/v13/backend/pkg/logger"
 )
 
 // TradingHandler handles trading-related API endpoints
 // ⭐ SSOT: 거래 API 핸들러는 이 구조체에서만
 type TradingHandler struct {
-	kisClient   *kis.Client
-	kisWSClient *kis.WSClient
-	logger      *logger.Logger
+	kisClient     *kis.Client
+	kisWSClient   *kis.WSClient
+	portfolioRepo *portfolio.Repository
+	logger        *logger.Logger
 }
 
 // NewTradingHandler creates a new trading handler
-func NewTradingHandler(kisClient *kis.Client, kisWSClient *kis.WSClient, log *logger.Logger) *TradingHandler {
+func NewTradingHandler(kisClient *kis.Client, kisWSClient *kis.WSClient, portfolioRepo *portfolio.Repository, log *logger.Logger) *TradingHandler {
 	return &TradingHandler{
-		kisClient:   kisClient,
-		kisWSClient: kisWSClient,
-		logger:      log,
+		kisClient:     kisClient,
+		kisWSClient:   kisWSClient,
+		portfolioRepo: portfolioRepo,
+		logger:        log,
 	}
 }
 
@@ -29,7 +35,7 @@ func NewTradingHandler(kisClient *kis.Client, kisWSClient *kis.WSClient, log *lo
 // Balance & Positions
 // ============================================================
 
-// GetBalance returns account balance and positions
+// GetBalance returns account balance and positions with exit monitoring status
 // GET /api/trading/balance
 func (h *TradingHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -41,17 +47,59 @@ func (h *TradingHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get exit monitoring statuses from DB
+	monitoringStatuses, err := h.portfolioRepo.GetExitMonitoringAll(ctx)
+	if err != nil {
+		h.logger.WithError(err).Warn("Failed to get exit monitoring statuses")
+		// Continue without monitoring status
+	}
+
+	// Create map for quick lookup
+	monitoringMap := make(map[string]bool)
+	for _, status := range monitoringStatuses {
+		monitoringMap[status.StockCode] = status.Enabled
+	}
+
+	// Get market info for all positions (single IN query - efficient)
+	stockCodes := make([]string, len(positions))
+	for i, pos := range positions {
+		stockCodes[i] = pos.StockCode
+	}
+	marketMap, err := h.portfolioRepo.GetStockMarkets(ctx, stockCodes)
+	if err != nil {
+		h.logger.WithError(err).Warn("Failed to get stock markets")
+		marketMap = make(map[string]string)
+	}
+
+	// Merge positions with monitoring status and market
+	result := make([]PositionWithMonitoring, len(positions))
+	for i, pos := range positions {
+		result[i] = PositionWithMonitoring{
+			Position:              pos,
+			Market:                marketMap[pos.StockCode],
+			ExitMonitoringEnabled: monitoringMap[pos.StockCode],
+		}
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"balance":   balance,
-		"positions": positions,
+		"positions": result,
 	})
 }
 
-// GetPositions returns only positions
+// PositionWithMonitoring extends KIS position with exit monitoring status and market info
+type PositionWithMonitoring struct {
+	kis.Position
+	Market                string `json:"market"`
+	ExitMonitoringEnabled bool   `json:"exit_monitoring_enabled"`
+}
+
+// GetPositions returns only positions with exit monitoring status
 // GET /api/trading/positions
 func (h *TradingHandler) GetPositions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Get positions from KIS
 	positions, err := h.kisClient.GetPositions(ctx)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get positions")
@@ -59,9 +107,43 @@ func (h *TradingHandler) GetPositions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get exit monitoring statuses from DB
+	monitoringStatuses, err := h.portfolioRepo.GetExitMonitoringAll(ctx)
+	if err != nil {
+		h.logger.WithError(err).Warn("Failed to get exit monitoring statuses")
+		// Continue without monitoring status
+	}
+
+	// Create map for quick lookup
+	monitoringMap := make(map[string]bool)
+	for _, status := range monitoringStatuses {
+		monitoringMap[status.StockCode] = status.Enabled
+	}
+
+	// Get market info for all positions (single IN query - efficient)
+	stockCodes := make([]string, len(positions))
+	for i, pos := range positions {
+		stockCodes[i] = pos.StockCode
+	}
+	marketMap, err := h.portfolioRepo.GetStockMarkets(ctx, stockCodes)
+	if err != nil {
+		h.logger.WithError(err).Warn("Failed to get stock markets")
+		marketMap = make(map[string]string)
+	}
+
+	// Merge positions with monitoring status and market
+	result := make([]PositionWithMonitoring, len(positions))
+	for i, pos := range positions {
+		result[i] = PositionWithMonitoring{
+			Position:              pos,
+			Market:                marketMap[pos.StockCode],
+			ExitMonitoringEnabled: monitoringMap[pos.StockCode],
+		}
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"positions": positions,
-		"count":     len(positions),
+		"positions": result,
+		"count":     len(result),
 	})
 }
 
@@ -243,7 +325,7 @@ func (h *TradingHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 // ============================================================
 
 // GetCurrentPrice returns current price for a stock
-// GET /api/trading/price/{stock_code}
+// GET /api/trading/price?stock_code=005930
 func (h *TradingHandler) GetCurrentPrice(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -261,6 +343,72 @@ func (h *TradingHandler) GetCurrentPrice(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondJSON(w, http.StatusOK, price)
+}
+
+// RealtimePrice represents a simplified price response for frontend
+type RealtimePrice struct {
+	Price      float64 `json:"price"`
+	Change     float64 `json:"change"`
+	ChangeRate float64 `json:"change_rate"`
+	Volume     int64   `json:"volume,omitempty"`
+	UpdatedAt  string  `json:"updated_at,omitempty"`
+}
+
+// GetPrices returns current prices for multiple stocks
+// GET /api/trading/prices?symbols=005930,073570,035720
+func (h *TradingHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	symbolsStr := r.URL.Query().Get("symbols")
+	if symbolsStr == "" {
+		respondError(w, http.StatusBadRequest, "symbols is required")
+		return
+	}
+
+	symbols := strings.Split(symbolsStr, ",")
+	if len(symbols) == 0 {
+		respondError(w, http.StatusBadRequest, "at least one symbol is required")
+		return
+	}
+
+	// 최대 50개 종목까지 허용
+	if len(symbols) > 50 {
+		symbols = symbols[:50]
+	}
+
+	prices := make(map[string]RealtimePrice)
+
+	for i, symbol := range symbols {
+		symbol = strings.TrimSpace(symbol)
+		if symbol == "" {
+			continue
+		}
+
+		// KIS API Rate Limit: 초당 20건 → 50ms 딜레이로 안전하게 처리
+		if i > 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		price, err := h.kisClient.GetCurrentPrice(ctx, symbol)
+		if err != nil {
+			h.logger.WithError(err).WithFields(map[string]interface{}{
+				"symbol": symbol,
+			}).Warn("Failed to get price for symbol")
+			continue
+		}
+
+		prices[symbol] = RealtimePrice{
+			Price:      price.ClosePrice,
+			Change:     price.Change,
+			ChangeRate: price.ChangeRate,
+			Volume:     price.Volume,
+			UpdatedAt:  price.FetchedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"prices": prices,
+	})
 }
 
 // ============================================================
@@ -352,5 +500,72 @@ func (h *TradingHandler) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		"status":        "unsubscribed",
 		"symbols":       req.Symbols,
 		"subscriptions": h.kisWSClient.GetSubscriptions(),
+	})
+}
+
+// ============================================================
+// Exit Monitoring
+// ============================================================
+
+// UpdateExitMonitoringRequest represents exit monitoring update request
+type UpdateExitMonitoringRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// UpdateExitMonitoring updates exit monitoring status for a position
+// PATCH /api/trading/positions/{stock_code}/exit-monitoring
+func (h *TradingHandler) UpdateExitMonitoring(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	stockCode := vars["stock_code"]
+
+	if stockCode == "" {
+		respondError(w, http.StatusBadRequest, "stock_code is required")
+		return
+	}
+
+	var req UpdateExitMonitoringRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Update exit monitoring status
+	if err := h.portfolioRepo.SetExitMonitoring(ctx, stockCode, req.Enabled); err != nil {
+		h.logger.WithError(err).WithFields(map[string]interface{}{
+			"stock_code": stockCode,
+			"enabled":    req.Enabled,
+		}).Error("Failed to update exit monitoring")
+		respondError(w, http.StatusInternalServerError, "Failed to update exit monitoring")
+		return
+	}
+
+	h.logger.WithFields(map[string]interface{}{
+		"stock_code": stockCode,
+		"enabled":    req.Enabled,
+	}).Info("Exit monitoring updated")
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success":    true,
+		"stock_code": stockCode,
+		"enabled":    req.Enabled,
+	})
+}
+
+// GetExitMonitoringStatus returns exit monitoring status for all positions
+// GET /api/trading/exit-monitoring
+func (h *TradingHandler) GetExitMonitoringStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	statuses, err := h.portfolioRepo.GetExitMonitoringAll(ctx)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get exit monitoring status")
+		respondError(w, http.StatusInternalServerError, "Failed to get exit monitoring status")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"statuses": statuses,
+		"count":    len(statuses),
 	})
 }
