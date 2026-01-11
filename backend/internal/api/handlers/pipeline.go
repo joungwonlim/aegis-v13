@@ -461,6 +461,21 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 				stock_code, per, pbr, roe
 			FROM data.fundamentals
 			ORDER BY stock_code, report_date DESC
+		),
+		price_dates AS (
+			SELECT DISTINCT trade_date FROM data.daily_prices
+			ORDER BY trade_date DESC LIMIT 2
+		),
+		latest_prices AS (
+			SELECT
+				p1.stock_code,
+				p1.close_price as current_price,
+				COALESCE(p2.close_price, p1.close_price) as prev_price
+			FROM data.daily_prices p1
+			LEFT JOIN data.daily_prices p2
+				ON p1.stock_code = p2.stock_code
+				AND p2.trade_date = (SELECT MIN(trade_date) FROM price_dates)
+			WHERE p1.trade_date = (SELECT MAX(trade_date) FROM price_dates)
 		)
 		SELECT
 			r.stock_code,
@@ -474,11 +489,15 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 			COALESCE(r.quality, 0)::float8,
 			COALESCE(r.flow, 0)::float8,
 			COALESCE(r.event, 0)::float8,
-			0::float8 as current_price,
-			0::float8 as change_rate
+			COALESCE(lp.current_price, 0)::float8 as current_price,
+			CASE
+				WHEN lp.prev_price > 0 THEN ((lp.current_price - lp.prev_price) / lp.prev_price * 100)::float8
+				ELSE 0::float8
+			END as change_rate
 		FROM selection.ranking_results r
 		JOIN data.stocks s ON r.stock_code = s.code
 		JOIN latest_fundamentals lf ON r.stock_code = lf.stock_code
+		LEFT JOIN latest_prices lp ON r.stock_code = lp.stock_code
 		WHERE r.rank_date = $1
 		  ` + marketFilter + `
 		  AND s.status = 'active'
