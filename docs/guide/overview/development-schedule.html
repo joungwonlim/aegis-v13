@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="generator" content="Docusaurus v3.9.2">
 <title data-rh="true">Development Schedule | Aegis v13</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://joungwonlim.github.io/aegis-v13/img/aegis-social-card.jpg"><meta data-rh="true" name="twitter:image" content="https://joungwonlim.github.io/aegis-v13/img/aegis-social-card.jpg"><meta data-rh="true" property="og:url" content="https://joungwonlim.github.io/aegis-v13/docs/guide/overview/development-schedule"><meta data-rh="true" property="og:locale" content="ko"><meta data-rh="true" name="docusaurus_locale" content="ko"><meta data-rh="true" name="docsearch:language" content="ko"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="Development Schedule | Aegis v13"><meta data-rh="true" name="description" content="Aegis v13 개발 스케줄"><meta data-rh="true" property="og:description" content="Aegis v13 개발 스케줄"><link data-rh="true" rel="icon" href="/aegis-v13/img/favicon.ico"><link data-rh="true" rel="canonical" href="https://joungwonlim.github.io/aegis-v13/docs/guide/overview/development-schedule"><link data-rh="true" rel="alternate" href="https://joungwonlim.github.io/aegis-v13/docs/guide/overview/development-schedule" hreflang="ko"><link data-rh="true" rel="alternate" href="https://joungwonlim.github.io/aegis-v13/docs/guide/overview/development-schedule" hreflang="x-default"><script data-rh="true" type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Development Schedule","item":"https://joungwonlim.github.io/aegis-v13/docs/guide/overview/development-schedule"}]}</script><link rel="stylesheet" href="/aegis-v13/assets/css/styles.0eb6a739.css">
-<script src="/aegis-v13/assets/js/runtime~main.bfb0c5c1.js" defer="defer"></script>
+<script src="/aegis-v13/assets/js/runtime~main.68f74b45.js" defer="defer"></script>
 <script src="/aegis-v13/assets/js/main.710d1f3a.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -391,6 +391,13 @@
 <li class="">✅ would_block 로깅 (차단됐을지 여부 기록)</li>
 <li class="">✅ <code>migrations/026_risk_gate_events.sql</code> - DB 마이그레이션</li>
 <li class="">✅ <code>cmd/quant/commands/gate.go</code> - CLI 명령어 (status, test, stats)</li>
+</ul>
+<p><strong>RiskGate (Phase C - Enforce):</strong></p>
+<ul>
+<li class="">✅ Enforce 모드 구현 (실제 주문 차단/축소)</li>
+<li class="">✅ GateAction: pass, reduce, block</li>
+<li class="">✅ 비중 축소 로직 (AdjustedOrders)</li>
+<li class="">✅ 심각도별 차단 (CRITICAL → block, WARNING → reduce)</li>
 </ul>
 <h3 class="anchor anchorTargetStickyNavbar_Vzrq" id="목표-5">목표<a href="#목표-5" class="hash-link" aria-label="목표에 대한 직접 링크" title="목표에 대한 직접 링크" translate="no">​</a></h3>
 <p>주문 생성 및 실행</p>
