@@ -70,7 +70,7 @@ function formatVolume(volume: number): string {
 }
 
 export function InvestorTradingChart({ data, isLoading }: InvestorTradingChartProps) {
-  const [period, setPeriod] = useState<PeriodType>('ALL')
+  const [period, setPeriod] = useState<PeriodType>('1M')
 
   // 사용 가능한 데이터 일수
   const availableDays = data.length
