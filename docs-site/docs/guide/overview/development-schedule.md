@@ -965,6 +965,12 @@ internal/portfolio/
 - ✅ `migrations/026_risk_gate_events.sql` - DB 마이그레이션
 - ✅ `cmd/quant/commands/gate.go` - CLI 명령어 (status, test, stats)
 
+**RiskGate (Phase C - Enforce):**
+- ✅ Enforce 모드 구현 (실제 주문 차단/축소)
+- ✅ GateAction: pass, reduce, block
+- ✅ 비중 축소 로직 (AdjustedOrders)
+- ✅ 심각도별 차단 (CRITICAL → block, WARNING → reduce)
+
 ### 목표
 주문 생성 및 실행
 

@@ -185,10 +185,20 @@ func runGateTest(cmd *cobra.Command, args []string) error {
 	fmt.Println("                  GATE CHECK RESULT")
 	fmt.Println(strings.Repeat("=", 50))
 
-	if result.Passed {
+	// 결과 상태
+	switch result.Action {
+	case execution.GateActionPass:
 		fmt.Println("✅ PASSED")
-	} else {
+	case execution.GateActionReduce:
+		fmt.Println("⚠️  REDUCED (positions adjusted)")
+	case execution.GateActionBlock:
 		fmt.Println("❌ BLOCKED")
+	default:
+		if result.Passed {
+			fmt.Println("✅ PASSED")
+		} else {
+			fmt.Println("❌ BLOCKED")
+		}
 	}
 
 	if result.WouldBlock {
@@ -198,6 +208,7 @@ func runGateTest(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\n📊 Mode: %s\n", result.Mode)
+	fmt.Printf("🎬 Action: %s\n", result.Action)
 	fmt.Printf("🆔 Run ID: %s\n", result.RunID)
 	fmt.Printf("⏰ Checked At: %s\n", result.CheckedAt.Format("2006-01-02 15:04:05"))
 
@@ -216,6 +227,20 @@ func runGateTest(cmd *cobra.Command, args []string) error {
 				fmt.Printf("     %s\n", v.Message)
 			}
 		}
+	}
+
+	// 축소된 주문 정보 (Enforce 모드)
+	if len(result.AdjustedOrders) > 0 {
+		fmt.Printf("\n📉 Adjusted Positions (%d)\n", len(result.AdjustedOrders))
+		for i, adj := range result.AdjustedOrders {
+			fmt.Printf("  %d. %s: %.1f%% → %.1f%%\n", i+1, adj.Code, adj.OriginalWeight*100, adj.AdjustedWeight*100)
+			fmt.Printf("     Reason: %s\n", adj.Reason)
+		}
+	}
+
+	// 차단된 주문 정보
+	if len(result.BlockedOrders) > 0 {
+		fmt.Printf("\n🚫 Blocked Orders (%d): %s\n", len(result.BlockedOrders), strings.Join(result.BlockedOrders, ", "))
 	}
 
 	fmt.Printf("\n💬 Message: %s\n", result.Message)

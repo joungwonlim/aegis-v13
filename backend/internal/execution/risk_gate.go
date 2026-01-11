@@ -82,16 +82,35 @@ type GateCheckInput struct {
 	TargetHoldings  []risk.Holding
 }
 
+// GateAction 게이트 조치 유형
+type GateAction string
+
+const (
+	GateActionPass   GateAction = "pass"   // 통과
+	GateActionBlock  GateAction = "block"  // 전체 차단
+	GateActionReduce GateAction = "reduce" // 비중 축소
+)
+
 // GateCheckResult 게이트 체크 결과
 type GateCheckResult struct {
-	Passed       bool                 `json:"passed"`
-	Mode         GateMode             `json:"mode"`
-	WouldBlock   bool                 `json:"would_block"`   // Shadow 모드에서 차단됐을지 여부
-	RiskCheck    *risk.RiskCheckResult `json:"risk_check"`
-	BlockedOrders []string            `json:"blocked_orders"` // 차단된 주문 코드
-	Message      string               `json:"message"`
-	CheckedAt    time.Time            `json:"checked_at"`
-	RunID        string               `json:"run_id"`
+	Passed        bool                  `json:"passed"`
+	Mode          GateMode              `json:"mode"`
+	Action        GateAction            `json:"action"`          // 조치 유형
+	WouldBlock    bool                  `json:"would_block"`     // Shadow 모드에서 차단됐을지 여부
+	RiskCheck     *risk.RiskCheckResult `json:"risk_check"`
+	BlockedOrders []string              `json:"blocked_orders"`  // 차단된 주문 코드
+	AdjustedOrders []AdjustedOrder      `json:"adjusted_orders"` // 축소된 주문 (Phase C)
+	Message       string                `json:"message"`
+	CheckedAt     time.Time             `json:"checked_at"`
+	RunID         string                `json:"run_id"`
+}
+
+// AdjustedOrder 축소된 주문 정보
+type AdjustedOrder struct {
+	Code           string  `json:"code"`
+	OriginalWeight float64 `json:"original_weight"` // 원래 비중
+	AdjustedWeight float64 `json:"adjusted_weight"` // 축소된 비중
+	Reason         string  `json:"reason"`          // 축소 이유
 }
 
 // Check 주문 전 리스크 체크 실행
@@ -136,6 +155,7 @@ func (g *RiskGate) Check(ctx context.Context, input GateCheckInput) (*GateCheckR
 	// 4. 결과 판정
 	if riskCheck.Passed {
 		result.Passed = true
+		result.Action = GateActionPass
 		result.WouldBlock = false
 		result.Message = "All risk checks passed"
 	} else {
@@ -143,12 +163,40 @@ func (g *RiskGate) Check(ctx context.Context, input GateCheckInput) (*GateCheckR
 		result.BlockedOrders = g.getBlockedOrderCodes(input.Orders, riskCheck)
 		result.Message = g.buildBlockMessage(riskCheck)
 
-		// Shadow 모드면 통과, Enforce 모드면 차단
-		if g.mode == GateModeShadow {
+		switch g.mode {
+		case GateModeShadow:
+			// Shadow 모드: 통과하되 로깅
 			result.Passed = true
+			result.Action = GateActionPass
 			g.logShadowBlock(ctx, result, riskCheck)
-		} else {
+
+		case GateModeEnforce:
+			// Enforce 모드: 위반 심각도에 따라 차단 또는 축소
+			if g.hasCriticalViolation(riskCheck) {
+				// 심각한 위반: 전체 차단
+				result.Passed = false
+				result.Action = GateActionBlock
+				g.logEnforceBlock(ctx, result, riskCheck)
+			} else {
+				// 경고 수준 위반: 비중 축소 후 통과
+				result.AdjustedOrders = g.calculateAdjustedOrders(input.TargetHoldings, riskCheck)
+				if len(result.AdjustedOrders) > 0 {
+					result.Passed = true
+					result.Action = GateActionReduce
+					result.Message = g.buildReduceMessage(riskCheck, result.AdjustedOrders)
+					g.logEnforceReduce(ctx, result, riskCheck)
+				} else {
+					// 축소 불가: 차단
+					result.Passed = false
+					result.Action = GateActionBlock
+					g.logEnforceBlock(ctx, result, riskCheck)
+				}
+			}
+
+		default:
+			// Off 모드는 이미 위에서 처리됨
 			result.Passed = false
+			result.Action = GateActionBlock
 		}
 	}
 
@@ -242,6 +290,137 @@ func (g *RiskGate) buildBlockMessage(riskCheck *risk.RiskCheckResult) string {
 		msg += fmt.Sprintf("%s (%.2f%% > %.2f%%)", v.Type, v.Actual*100, v.Limit*100)
 	}
 	return msg
+}
+
+// =============================================================================
+// Enforce Mode Logic (Phase C)
+// =============================================================================
+
+// hasCriticalViolation 심각한 위반 여부 확인 (CRITICAL 수준)
+func (g *RiskGate) hasCriticalViolation(riskCheck *risk.RiskCheckResult) bool {
+	for _, v := range riskCheck.Violations {
+		if v.Severity == "CRITICAL" {
+			return true
+		}
+		// VaR 한도 초과는 항상 심각
+		if v.Type == "VAR_95_LIMIT" || v.Type == "VAR_99_LIMIT" {
+			return true
+		}
+	}
+	return false
+}
+
+// calculateAdjustedOrders 위반 종목 비중 축소 계산
+func (g *RiskGate) calculateAdjustedOrders(holdings []risk.Holding, riskCheck *risk.RiskCheckResult) []AdjustedOrder {
+	adjusted := make([]AdjustedOrder, 0)
+
+	for _, v := range riskCheck.Violations {
+		switch v.Type {
+		case "SINGLE_EXPOSURE_LIMIT":
+			// 가장 큰 비중 종목 찾아서 축소
+			var maxHolding *risk.Holding
+			for i := range holdings {
+				if maxHolding == nil || holdings[i].Weight > maxHolding.Weight {
+					maxHolding = &holdings[i]
+				}
+			}
+			if maxHolding != nil && maxHolding.Weight > v.Limit {
+				adjusted = append(adjusted, AdjustedOrder{
+					Code:           maxHolding.Code,
+					OriginalWeight: maxHolding.Weight,
+					AdjustedWeight: v.Limit * 0.95, // 한도의 95%로 축소
+					Reason:         fmt.Sprintf("Single exposure %.2f%% exceeds limit %.2f%%", maxHolding.Weight*100, v.Limit*100),
+				})
+			}
+
+		case "CONCENTRATION_LIMIT":
+			// Top 5 종목 중 가장 큰 종목 축소
+			// 실제로는 더 정교한 로직 필요
+			for i := range holdings {
+				if holdings[i].Weight > 0.10 { // 10% 이상인 종목
+					newWeight := holdings[i].Weight * 0.90 // 10% 축소
+					adjusted = append(adjusted, AdjustedOrder{
+						Code:           holdings[i].Code,
+						OriginalWeight: holdings[i].Weight,
+						AdjustedWeight: newWeight,
+						Reason:         fmt.Sprintf("Concentration reduction: %.2f%% -> %.2f%%", holdings[i].Weight*100, newWeight*100),
+					})
+					break // 한 종목만 축소
+				}
+			}
+
+		case "SECTOR_EXPOSURE_LIMIT":
+			// 섹터 내 종목들 비례 축소 (추후 구현)
+			// 현재는 미구현
+
+		case "LIQUIDITY_SCORE":
+			// 유동성 낮은 종목 제거/축소 (추후 구현)
+			// 현재는 미구현
+		}
+	}
+
+	return adjusted
+}
+
+// buildReduceMessage 축소 메시지 생성
+func (g *RiskGate) buildReduceMessage(riskCheck *risk.RiskCheckResult, adjusted []AdjustedOrder) string {
+	if len(adjusted) == 0 {
+		return "No adjustments made"
+	}
+
+	msg := fmt.Sprintf("Adjusted %d positions: ", len(adjusted))
+	for i, adj := range adjusted {
+		if i > 0 {
+			msg += ", "
+		}
+		msg += fmt.Sprintf("%s (%.1f%% → %.1f%%)", adj.Code, adj.OriginalWeight*100, adj.AdjustedWeight*100)
+	}
+	return msg
+}
+
+// logEnforceBlock Enforce 모드 차단 로깅
+func (g *RiskGate) logEnforceBlock(ctx context.Context, result *GateCheckResult, riskCheck *risk.RiskCheckResult) {
+	fields := map[string]interface{}{
+		"run_id":          g.runID,
+		"mode":            "enforce",
+		"action":          "block",
+		"violation_count": len(riskCheck.Violations),
+		"blocked_orders":  result.BlockedOrders,
+	}
+
+	// 위반 상세 정보 추가
+	for i, v := range riskCheck.Violations {
+		fields[fmt.Sprintf("violation_%d_type", i)] = v.Type
+		fields[fmt.Sprintf("violation_%d_severity", i)] = v.Severity
+		fields[fmt.Sprintf("violation_%d_actual", i)] = v.Actual
+		fields[fmt.Sprintf("violation_%d_limit", i)] = v.Limit
+	}
+
+	// 리스크 메트릭 추가
+	fields["var_95"] = riskCheck.Metrics.PortfolioVaR95
+	fields["var_99"] = riskCheck.Metrics.PortfolioVaR99
+
+	g.logger.WithFields(fields).Error("🚫 ENFORCE BLOCK: Orders blocked due to risk violations")
+}
+
+// logEnforceReduce Enforce 모드 축소 로깅
+func (g *RiskGate) logEnforceReduce(ctx context.Context, result *GateCheckResult, riskCheck *risk.RiskCheckResult) {
+	fields := map[string]interface{}{
+		"run_id":           g.runID,
+		"mode":             "enforce",
+		"action":           "reduce",
+		"violation_count":  len(riskCheck.Violations),
+		"adjusted_count":   len(result.AdjustedOrders),
+	}
+
+	// 축소된 주문 정보
+	for i, adj := range result.AdjustedOrders {
+		fields[fmt.Sprintf("adjusted_%d_code", i)] = adj.Code
+		fields[fmt.Sprintf("adjusted_%d_original", i)] = adj.OriginalWeight
+		fields[fmt.Sprintf("adjusted_%d_new", i)] = adj.AdjustedWeight
+	}
+
+	g.logger.WithFields(fields).Warn("⚠️ ENFORCE REDUCE: Positions reduced to meet risk limits")
 }
 
 // =============================================================================

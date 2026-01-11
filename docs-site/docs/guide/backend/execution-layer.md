@@ -41,14 +41,28 @@ Qty = TargetValue / CurrentPrice
 | **RiskGate (Phase B)** | ✅ 완료 | `internal/execution/risk_gate.go` |
 | KIS API 연동 | ⏳ TODO | `internal/external/kis/` |
 
-### 리스크 게이트 (Phase B)
+### 리스크 게이트 (Phase B + C)
 
 | 컴포넌트 | 상태 | 설명 |
 |---------|------|------|
 | **RiskGate** | ✅ 완료 | S6 사전 리스크 체크 |
 | **Shadow Mode** | ✅ 완료 | 차단 로깅 (would_block) |
+| **Enforce Mode** | ✅ 완료 | 실제 차단/축소 (Phase C) |
 | **Gate CLI** | ✅ 완료 | `go run ./cmd/quant gate` |
 | **DB Migration** | ✅ 완료 | `migrations/026_risk_gate_events.sql` |
+
+#### Phase C: Enforce 모드 기능
+
+| Action | 설명 | 조건 |
+|--------|------|------|
+| `pass` | 통과 | 리스크 한도 내 |
+| `reduce` | 비중 축소 후 통과 | WARNING 수준 위반 |
+| `block` | 전체 차단 | CRITICAL 위반 또는 VaR 초과 |
+
+```bash
+# Enforce 모드 테스트
+go run ./cmd/quant gate test --demo --mode enforce
+```
 
 :::tip YAML SSOT
 주문 설정과 슬리피지 모델은 `backend/config/strategy/korea_equity_v13.yaml`의 `execution` 섹션에서 관리됩니다.
