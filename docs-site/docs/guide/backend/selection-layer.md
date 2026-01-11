@@ -49,14 +49,15 @@ description: S3-S4 스크리닝/랭킹
 │ 입력: SignalSet (전체 종목)        │       │ 입력: 필터 통과 종목 + SignalSet   │
 │                                   │       │                                   │
 │ Hard Cut 조건:                    │       │ 가중치 (YAML SSOT):               │
-│ • momentum >= 0                  │       │ • Momentum: 25%                   │
-│ • technical >= -0.5              │       │ • Flow: 20%                       │
-│ • flow >= -0.3                   │       │ • Technical: 15%                  │
-│                                   │       │ • Event: 15%                      │
-│ 의미:                             │       │ • Value: 15%                      │
-│ • 상승 모멘텀 종목만               │       │ • Quality: 10%                    │
-│ • 기술적 과매도 제외               │       │                                   │
-│ • 수급 악화 종목 제외              │       │ 출력: RankedStock[] (점수순)       │
+│                                   │       │ • Momentum: 25%                   │
+│ [팩터 조건]                        │       │ • Flow: 20%                       │
+│ • momentum >= 0 (상승 모멘텀)     │       │ • Technical: 15%                  │
+│ • technical >= -0.5 (과매도 제외)  │       │ • Event: 15%                      │
+│ • flow >= -0.3 (수급 악화 제외)    │       │ • Value: 15%                      │
+│                                   │       │ • Quality: 10%                    │
+│ [재무 조건]                        │       │                                   │
+│ • PER > 0 AND <= 50 (고평가 제외) │       │ 출력: RankedStock[] (점수순)       │
+│ • PBR >= 0.2 (자산가치 필터)       │       │                                   │
 │                                   │       │                                   │
 │ 출력: 통과 종목 리스트             │       │                                   │
 └───────────────────────────────────┘       └───────────────────────────────────┘
@@ -258,10 +259,15 @@ func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.Si
 # config/selection.yaml
 
 screener:
-  # Hard Cut 조건 (팩터 점수 기반)
+  # 팩터 Hard Cut 조건
   min_momentum: 0.0      # 상승 모멘텀만
   min_technical: -0.5    # 과매도 제외
   min_flow: -0.3         # 수급 악화 제외
+
+  # 재무 Hard Cut 조건
+  max_per: 50            # PER <= 50 (고평가 제외)
+  min_per: 0             # PER > 0 (적자기업 제외)
+  min_pbr: 0.2           # PBR >= 0.2 (자산가치 필터)
 
 ranker:
   weights:

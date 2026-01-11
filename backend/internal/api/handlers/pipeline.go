@@ -51,18 +51,21 @@ type SignalItem struct {
 
 // ScreenedItem represents a stock that passed hard cut (S3)
 type ScreenedItem struct {
-	StockCode   string  `json:"stockCode"`
-	StockName   string  `json:"stockName"`
-	Market      string  `json:"market"`
-	CalcDate    string  `json:"calcDate"`
-	Momentum    float64 `json:"momentum"`
-	Technical   float64 `json:"technical"`
-	Value       float64 `json:"value"`
-	Quality     float64 `json:"quality"`
-	Flow        float64 `json:"flow"`
-	Event       float64 `json:"event"`
-	TotalScore  float64 `json:"totalScore"`
-	PassedAll   bool    `json:"passedAll"`
+	StockCode   string   `json:"stockCode"`
+	StockName   string   `json:"stockName"`
+	Market      string   `json:"market"`
+	CalcDate    string   `json:"calcDate"`
+	Momentum    float64  `json:"momentum"`
+	Technical   float64  `json:"technical"`
+	Value       float64  `json:"value"`
+	Quality     float64  `json:"quality"`
+	Flow        float64  `json:"flow"`
+	Event       float64  `json:"event"`
+	TotalScore  float64  `json:"totalScore"`
+	PER         *float64 `json:"per"`
+	PBR         *float64 `json:"pbr"`
+	ROE         *float64 `json:"roe"`
+	PassedAll   bool     `json:"passedAll"`
 }
 
 // RankingItem represents a ranked stock (S4)
@@ -290,7 +293,12 @@ func (h *PipelineHandler) GetSignals(w http.ResponseWriter, r *http.Request) {
 
 // GetScreened returns stocks that passed hard cut filtering (S3)
 // GET /api/v1/pipeline/screened?market=KOSPI|KOSDAQ|ALL
-// Hard Cut 조건: momentum >= 0, technical >= -0.5, flow >= -0.3
+// Hard Cut 조건:
+//   - momentum >= 0 (상승 모멘텀)
+//   - technical >= -0.5 (과매도 제외)
+//   - flow >= -0.3 (수급 악화 제외)
+//   - PER <= 50 AND PER > 0 (고평가 제외)
+//   - PBR >= 0.2 (자산가치 필터)
 func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	market := r.URL.Query().Get("market")
@@ -307,7 +315,6 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build query with hard cut conditions
-	// Hard Cut: momentum >= 0, technical >= -0.5, flow >= -0.3
 	marketFilter := ""
 	args := []interface{}{latestDate}
 	if market != "" && market != "ALL" {
@@ -315,7 +322,18 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 		args = append(args, market)
 	}
 
+	// Join with fundamentals for PER/PBR/ROE
+	// Use latest fundamentals data for each stock
 	query := `
+		WITH latest_fundamentals AS (
+			SELECT DISTINCT ON (stock_code)
+				stock_code,
+				per,
+				pbr,
+				roe
+			FROM data.fundamentals
+			ORDER BY stock_code, report_date DESC
+		)
 		SELECT
 			f.stock_code,
 			s.name as stock_name,
@@ -327,15 +345,23 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 			f.quality::float8,
 			f.flow::float8,
 			f.event::float8,
-			COALESCE(f.total_score, 0)::float8 as total_score
+			COALESCE(f.total_score, 0)::float8 as total_score,
+			lf.per::float8,
+			lf.pbr::float8,
+			lf.roe::float8
 		FROM signals.factor_scores f
 		JOIN data.stocks s ON f.stock_code = s.code
+		LEFT JOIN latest_fundamentals lf ON f.stock_code = lf.stock_code
 		WHERE f.calc_date = $1
 		  ` + marketFilter + `
 		  AND s.status = 'active'
+		  -- Factor Hard Cut
 		  AND f.momentum >= 0
 		  AND f.technical >= -0.5
 		  AND f.flow >= -0.3
+		  -- Fundamental Hard Cut
+		  AND (lf.per IS NULL OR (lf.per > 0 AND lf.per <= 50))
+		  AND (lf.pbr IS NULL OR lf.pbr >= 0.2)
 		ORDER BY f.total_score DESC NULLS LAST
 	`
 
@@ -363,6 +389,9 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 			&item.Flow,
 			&item.Event,
 			&item.TotalScore,
+			&item.PER,
+			&item.PBR,
+			&item.ROE,
 		)
 		if err != nil {
 			h.logger.WithError(err).Error("Failed to scan screened item")
@@ -388,13 +417,20 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"date":           latestDate.Format("2006-01-02"),
-			"market":         market,
-			"count":          len(items),
-			"totalBefore":    totalBeforeScreening,
-			"filteredOut":    totalBeforeScreening - len(items),
-			"passRate":       float64(len(items)) / float64(totalBeforeScreening) * 100,
-			"items":          items,
+			"date":        latestDate.Format("2006-01-02"),
+			"market":      market,
+			"count":       len(items),
+			"totalBefore": totalBeforeScreening,
+			"filteredOut": totalBeforeScreening - len(items),
+			"passRate":    float64(len(items)) / float64(totalBeforeScreening) * 100,
+			"hardCutConditions": map[string]string{
+				"momentum":  ">= 0 (상승 모멘텀)",
+				"technical": ">= -0.5 (과매도 제외)",
+				"flow":      ">= -0.3 (수급 악화 제외)",
+				"per":       "> 0 AND <= 50 (고평가 제외)",
+				"pbr":       ">= 0.2 (자산가치 필터)",
+			},
+			"items": items,
 		},
 	})
 }

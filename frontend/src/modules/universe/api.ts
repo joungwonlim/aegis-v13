@@ -202,6 +202,9 @@ export interface ScreenedItem {
   flow: number
   event: number
   totalScore: number
+  per: number | null
+  pbr: number | null
+  roe: number | null
   passedAll: boolean
 }
 

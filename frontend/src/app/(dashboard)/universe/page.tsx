@@ -173,7 +173,7 @@ const s2Columns: StockDataColumn[] = [
   },
 ]
 
-// S3: 스크리너 컬럼 (Hard Cut 통과 종목 - 팩터 점수 표시)
+// S3: 스크리너 컬럼 (Hard Cut 통과 종목 - 팩터 + 재무 지표)
 const s3Columns: StockDataColumn[] = [
   {
     key: 'momentum',
@@ -197,6 +197,36 @@ const s3Columns: StockDataColumn[] = [
     render: (item) => <ScoreCell value={item.flow as number} />,
   },
   {
+    key: 'per',
+    label: 'PER',
+    width: 'w-16',
+    align: 'right',
+    render: (item) => {
+      const per = item.per as number | null
+      return <span className="font-mono text-sm">{per?.toFixed(1) ?? '-'}</span>
+    },
+  },
+  {
+    key: 'pbr',
+    label: 'PBR',
+    width: 'w-16',
+    align: 'right',
+    render: (item) => {
+      const pbr = item.pbr as number | null
+      return <span className="font-mono text-sm">{pbr?.toFixed(2) ?? '-'}</span>
+    },
+  },
+  {
+    key: 'roe',
+    label: 'ROE',
+    width: 'w-16',
+    align: 'right',
+    render: (item) => {
+      const roe = item.roe as number | null
+      return <span className="font-mono text-sm">{roe ? `${roe.toFixed(1)}%` : '-'}</span>
+    },
+  },
+  {
     key: 'totalScore',
     label: '종합점수',
     width: 'w-24',
@@ -207,20 +237,6 @@ const s3Columns: StockDataColumn[] = [
         <span className="font-mono font-semibold text-primary">
           {score?.toFixed(2) ?? '-'}
         </span>
-      )
-    },
-  },
-  {
-    key: 'passStatus',
-    label: '상태',
-    width: 'w-20',
-    align: 'center',
-    render: (item) => {
-      const status = item.passStatus as string
-      return (
-        <Badge variant={status === 'pass' ? 'default' : 'secondary'} className="text-xs">
-          {status === 'pass' ? '통과' : '탈락'}
-        </Badge>
       )
     },
   },
@@ -556,6 +572,9 @@ export default function UniversePage() {
         flow: item.flow,
         event: item.event,
         totalScore: item.totalScore,
+        per: item.per,
+        pbr: item.pbr,
+        roe: item.roe,
         passStatus: item.passedAll ? 'pass' : 'fail',
       }))
     }
