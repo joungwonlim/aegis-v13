@@ -13,7 +13,7 @@ import (
 
 // NewRouter creates and configures the HTTP router
 // ⭐ SSOT: 라우팅 설정은 이 함수에서만
-func NewRouter(dataHandler *handlers.DataHandler, tradingHandler *handlers.TradingHandler, log *logger.Logger) http.Handler {
+func NewRouter(dataHandler *handlers.DataHandler, tradingHandler *handlers.TradingHandler, stocklistHandler *handlers.StocklistHandler, stockHandler *handlers.StockHandler, rankingHandler *handlers.RankingHandler, pipelineHandler *handlers.PipelineHandler, forecastHandler *handlers.ForecastHandler, log *logger.Logger) http.Handler {
 	r := mux.NewRouter()
 
 	// Health check
@@ -26,6 +26,7 @@ func NewRouter(dataHandler *handlers.DataHandler, tradingHandler *handlers.Tradi
 	api.HandleFunc("/data/quality", dataHandler.GetQuality).Methods("GET")
 	api.HandleFunc("/data/universe", dataHandler.GetUniverse).Methods("GET")
 	api.HandleFunc("/data/collect", dataHandler.Collect).Methods("POST")
+	api.HandleFunc("/data/stats", dataHandler.GetDataStats).Methods("GET")
 
 	// Trading endpoints (KIS API)
 	api.HandleFunc("/trading/balance", tradingHandler.GetBalance).Methods("GET")
@@ -36,18 +37,49 @@ func NewRouter(dataHandler *handlers.DataHandler, tradingHandler *handlers.Tradi
 	api.HandleFunc("/trading/orders", tradingHandler.PlaceOrder).Methods("POST")
 	api.HandleFunc("/trading/orders", tradingHandler.CancelOrder).Methods("DELETE")
 	api.HandleFunc("/trading/price", tradingHandler.GetCurrentPrice).Methods("GET")
+	api.HandleFunc("/trading/prices", tradingHandler.GetPrices).Methods("GET")
 
 	// WebSocket management endpoints
 	api.HandleFunc("/trading/ws/status", tradingHandler.GetWebSocketStatus).Methods("GET")
 	api.HandleFunc("/trading/ws/subscribe", tradingHandler.Subscribe).Methods("POST")
 	api.HandleFunc("/trading/ws/unsubscribe", tradingHandler.Unsubscribe).Methods("POST")
 
-	// Apply middleware
-	r.Use(corsMiddleware())
+	// Exit monitoring endpoints
+	api.HandleFunc("/trading/positions/{stock_code}/exit-monitoring", tradingHandler.UpdateExitMonitoring).Methods("PATCH")
+	api.HandleFunc("/trading/exit-monitoring", tradingHandler.GetExitMonitoringStatus).Methods("GET")
+
+	// Stock data endpoints
+	api.HandleFunc("/stocks/{code}/daily", stockHandler.GetDailyPrices).Methods("GET")
+	api.HandleFunc("/stocks/{code}/investor-trading", stockHandler.GetInvestorTrading).Methods("GET")
+
+	// Stocklist (Watchlist) endpoints - v1 API
+	api.HandleFunc("/v1/watchlist", stocklistHandler.GetWatchlist).Methods("GET")
+	api.HandleFunc("/v1/watchlist/{category}", stocklistHandler.GetWatchlistByCategory).Methods("GET")
+	api.HandleFunc("/v1/watchlist", stocklistHandler.CreateWatchlistItem).Methods("POST")
+	api.HandleFunc("/v1/watchlist/{id}", stocklistHandler.UpdateWatchlistItem).Methods("PUT")
+	api.HandleFunc("/v1/watchlist/{id}", stocklistHandler.DeleteWatchlistItem).Methods("DELETE")
+
+	// Ranking endpoints - v1 API
+	api.HandleFunc("/v1/ranking/status", rankingHandler.GetRankingStatus).Methods("GET")
+	api.HandleFunc("/v1/ranking/{category}", rankingHandler.GetRanking).Methods("GET")
+
+	// Pipeline endpoints - v1 API (S1-S5 데이터)
+	api.HandleFunc("/v1/pipeline/universe", pipelineHandler.GetUniverse).Methods("GET")
+	api.HandleFunc("/v1/pipeline/signals", pipelineHandler.GetSignals).Methods("GET")
+	api.HandleFunc("/v1/pipeline/screened", pipelineHandler.GetScreened).Methods("GET")
+	api.HandleFunc("/v1/pipeline/ranking", pipelineHandler.GetRanking).Methods("GET")
+	api.HandleFunc("/v1/pipeline/portfolio", pipelineHandler.GetPortfolio).Methods("GET")
+
+	// Forecast endpoints
+	api.HandleFunc("/forecast/analyze/{symbol}", forecastHandler.AnalyzeForecast).Methods("POST")
+	api.HandleFunc("/forecast/events/{symbol}", forecastHandler.GetEvents).Methods("GET")
+
+	// Apply middleware (order matters: CORS must wrap everything)
 	r.Use(loggingMiddleware(log))
 	r.Use(recoveryMiddleware(log))
 
-	return r
+	// CORS must wrap the entire router to handle OPTIONS before route matching
+	return corsHandler(r)
 }
 
 // healthCheckHandler returns server health status
@@ -102,23 +134,21 @@ func recoveryMiddleware(log *logger.Logger) mux.MiddlewareFunc {
 	}
 }
 
-// corsMiddleware handles CORS preflight requests
-func corsMiddleware() mux.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Set CORS headers
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Max-Age", "86400")
+// corsHandler wraps the router to handle CORS before route matching
+func corsHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers for all requests
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "86400")
 
-			// Handle preflight requests
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
+		// Handle preflight requests BEFORE route matching
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 
-			next.ServeHTTP(w, r)
-		})
-	}
+		next.ServeHTTP(w, r)
+	})
 }

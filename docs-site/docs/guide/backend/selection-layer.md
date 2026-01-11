@@ -19,7 +19,7 @@ description: S3-S4 스크리닝/랭킹
 
 ---
 
-## 구현 상태 (2026-01-10)
+## 구현 상태 (2026-01-11)
 
 | 컴포넌트 | 상태 | 파일 |
 |---------|------|------|
@@ -48,15 +48,17 @@ description: S3-S4 스크리닝/랭킹
 ├───────────────────────────────────┤       ├───────────────────────────────────┤
 │ 입력: SignalSet (전체 종목)        │       │ 입력: 필터 통과 종목 + SignalSet   │
 │                                   │       │                                   │
-│ 필터 조건:                         │       │ 가중치 (YAML SSOT):               │
-│ • day1_return ≥ -9%              │       │ • Momentum: 25%                   │
-│ • day5_return ≥ -18%             │       │ • Flow: 20%                       │
-│ • day5_return ≤ +35%             │       │ • Technical: 15%                  │
-│ • net_income_ttm > 0             │       │ • Event: 15%                      │
-│ • PER ≤ 60                       │       │ • Value: 15%                      │
-│ • 상위 10% 변동성 제외            │       │ • Quality: 10%                    │
+│ Hard Cut 조건:                    │       │ 가중치 (YAML SSOT):               │
+│ • momentum >= 0                  │       │ • Momentum: 25%                   │
+│ • technical >= -0.5              │       │ • Flow: 20%                       │
+│ • flow >= -0.3                   │       │ • Technical: 15%                  │
+│                                   │       │ • Event: 15%                      │
+│ 의미:                             │       │ • Value: 15%                      │
+│ • 상승 모멘텀 종목만               │       │ • Quality: 10%                    │
+│ • 기술적 과매도 제외               │       │                                   │
+│ • 수급 악화 종목 제외              │       │ 출력: RankedStock[] (점수순)       │
 │                                   │       │                                   │
-│ 출력: 통과 종목 리스트             │       │ 출력: RankedStock[] (점수순)       │
+│ 출력: 통과 종목 리스트             │       │                                   │
 └───────────────────────────────────┘       └───────────────────────────────────┘
 ```
 
@@ -102,14 +104,10 @@ type screener struct {
 }
 
 type ScreenerConfig struct {
-    // Hard Cut 조건
-    MinMomentum  float64 `yaml:"min_momentum"`   // -1.0 이상
-    MinVolume    int64   `yaml:"min_volume"`     // 5억 이상
-    MaxPER       float64 `yaml:"max_per"`        // 50 이하
-    MinROE       float64 `yaml:"min_roe"`        // 5% 이상
-
-    // Negative 필터
-    ExcludeNegativeEarnings bool `yaml:"exclude_negative_earnings"`
+    // Hard Cut 조건 (팩터 점수 기반)
+    MinMomentum  float64 `yaml:"min_momentum"`   // 0 이상 (상승 모멘텀)
+    MinTechnical float64 `yaml:"min_technical"`  // -0.5 이상 (과매도 제외)
+    MinFlow      float64 `yaml:"min_flow"`       // -0.3 이상 (수급 악화 제외)
 }
 
 func (s *screener) Screen(ctx context.Context, signals *contracts.SignalSet) ([]string, error) {
@@ -125,22 +123,57 @@ func (s *screener) Screen(ctx context.Context, signals *contracts.SignalSet) ([]
 }
 
 func (s *screener) passAllConditions(signal contracts.StockSignal) bool {
-    // 모멘텀 필터
-    if signal.Factors["momentum"] < s.config.MinMomentum {
+    // 모멘텀 필터: 상승 추세만
+    if signal.Momentum < s.config.MinMomentum {
         return false
     }
 
-    // PER 필터
-    if per := signal.Factors["per"]; per > s.config.MaxPER || per < 0 {
+    // 기술적 필터: 과매도 종목 제외
+    if signal.Technical < s.config.MinTechnical {
         return false
     }
 
-    // ROE 필터
-    if signal.Factors["roe"] < s.config.MinROE {
+    // 수급 필터: 수급 악화 종목 제외
+    if signal.Flow < s.config.MinFlow {
         return false
     }
 
     return true
+}
+```
+
+### API 엔드포인트
+
+```
+GET /api/v1/pipeline/screened?market={ALL|KOSPI|KOSDAQ}
+```
+
+**응답 예시:**
+```json
+{
+  "success": true,
+  "data": {
+    "date": "2026-01-11",
+    "market": "ALL",
+    "count": 450,
+    "hardCutConditions": {
+      "momentum": ">= 0",
+      "technical": ">= -0.5",
+      "flow": ">= -0.3"
+    },
+    "items": [
+      {
+        "stockCode": "005930",
+        "stockName": "삼성전자",
+        "market": "KOSPI",
+        "momentum": 0.25,
+        "technical": 0.10,
+        "flow": 0.15,
+        "totalScore": 0.85,
+        "passedAll": true
+      }
+    ]
+  }
 }
 ```
 
@@ -225,11 +258,10 @@ func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.Si
 # config/selection.yaml
 
 screener:
-  min_momentum: -1.0
-  min_volume: 500000000    # 5억
-  max_per: 50
-  min_roe: 0.05
-  exclude_negative_earnings: true
+  # Hard Cut 조건 (팩터 점수 기반)
+  min_momentum: 0.0      # 상승 모멘텀만
+  min_technical: -0.5    # 과매도 제외
+  min_flow: -0.3         # 수급 악화 제외
 
 ranker:
   weights:

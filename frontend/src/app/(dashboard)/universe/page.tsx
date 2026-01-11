@@ -18,7 +18,16 @@ import {
   type StockDataColumn,
 } from '@/modules/stock/components'
 import { Search, RefreshCw, Loader2 } from 'lucide-react'
-import { useRanking, type RankingCategory, type MarketType } from '@/modules/universe'
+import {
+  useRanking,
+  useUniverse,
+  useSignals,
+  useScreened,
+  usePipelineRanking,
+  usePortfolio,
+  type RankingCategory,
+  type MarketType,
+} from '@/modules/universe'
 import { PipelineSteps, StepConditions, type PipelineStep } from '@/modules/universe/components'
 import { cn } from '@/shared/lib/utils'
 
@@ -29,9 +38,35 @@ const MARKET_OPTIONS: { value: MarketType; label: string }[] = [
   { value: 'KOSDAQ', label: '코스닥' },
 ]
 
+// S1 카테고리 옵션 (UI 버튼)
+const CATEGORY_OPTIONS: { value: RankingCategory; label: string }[] = [
+  { value: 'trading', label: '거래량' },
+  { value: 'upper', label: '상승' },
+  { value: 'lower', label: '하락' },
+  { value: 'capitalization', label: '시가총액' },
+  { value: 'high52week', label: '52주 신고가' },
+  { value: 'low52week', label: '52주 신저가' },
+  { value: 'new', label: '신규상장' },
+]
+
+// 카테고리별 제목 매핑
+const CATEGORY_TITLES: Record<RankingCategory, string> = {
+  trading: '거래량순',
+  upper: '상승률순',
+  lower: '하락률순',
+  capitalization: '시가총액순',
+  high52week: '52주 신고가',
+  low52week: '52주 신저가',
+  top: '시가총액순',
+  quantHigh: '퀀트 상위',
+  quantLow: '퀀트 하위',
+  priceTop: '고가순',
+  new: '신규상장',
+}
+
 // 단계별 제목
 const STEP_TITLES: Record<PipelineStep, string> = {
-  S1: 'Universe - 투자 가능 종목',
+  S1: '', // S1은 카테고리에 따라 동적 생성
   S2: 'Signals - 팩터 점수',
   S3: 'Screener - Hard Cut 통과',
   S4: 'Ranking - 종합 순위',
@@ -71,6 +106,80 @@ const s2Columns: StockDataColumn[] = [
     label: 'Momentum',
     width: 'w-20',
     align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => <ScoreCell value={item.momentum as number} />,
+  },
+  {
+    key: 'technical',
+    label: 'Technical',
+    width: 'w-20',
+    align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => <ScoreCell value={item.technical as number} />,
+  },
+  {
+    key: 'value',
+    label: 'Value',
+    width: 'w-20',
+    align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => <ScoreCell value={item.value as number} />,
+  },
+  {
+    key: 'quality',
+    label: 'Quality',
+    width: 'w-20',
+    align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => <ScoreCell value={item.quality as number} />,
+  },
+  {
+    key: 'flow',
+    label: 'Flow',
+    width: 'w-20',
+    align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => <ScoreCell value={item.flow as number} />,
+  },
+  {
+    key: 'event',
+    label: 'Event',
+    width: 'w-20',
+    align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => <ScoreCell value={item.event as number} />,
+  },
+  {
+    key: 'totalScore',
+    label: '종합점수',
+    width: 'w-24',
+    align: 'right',
+    sortable: true,
+    aggregation: 'avg',
+    render: (item) => {
+      const score = item.totalScore as number | undefined
+      return (
+        <span className="font-mono font-semibold text-primary">
+          {score?.toFixed(2) ?? '-'}
+        </span>
+      )
+    },
+  },
+]
+
+// S3: 스크리너 컬럼 (Hard Cut 통과 종목 - 팩터 점수 표시)
+const s3Columns: StockDataColumn[] = [
+  {
+    key: 'momentum',
+    label: 'Momentum',
+    width: 'w-20',
+    align: 'right',
     render: (item) => <ScoreCell value={item.momentum as number} />,
   },
   {
@@ -81,20 +190,6 @@ const s2Columns: StockDataColumn[] = [
     render: (item) => <ScoreCell value={item.technical as number} />,
   },
   {
-    key: 'value',
-    label: 'Value',
-    width: 'w-20',
-    align: 'right',
-    render: (item) => <ScoreCell value={item.value as number} />,
-  },
-  {
-    key: 'quality',
-    label: 'Quality',
-    width: 'w-20',
-    align: 'right',
-    render: (item) => <ScoreCell value={item.quality as number} />,
-  },
-  {
     key: 'flow',
     label: 'Flow',
     width: 'w-20',
@@ -102,44 +197,17 @@ const s2Columns: StockDataColumn[] = [
     render: (item) => <ScoreCell value={item.flow as number} />,
   },
   {
-    key: 'event',
-    label: 'Event',
-    width: 'w-20',
-    align: 'right',
-    render: (item) => <ScoreCell value={item.event as number} />,
-  },
-]
-
-// S3: 스크리너 컬럼
-const s3Columns: StockDataColumn[] = [
-  {
-    key: 'per',
-    label: 'PER',
-    width: 'w-16',
+    key: 'totalScore',
+    label: '종합점수',
+    width: 'w-24',
     align: 'right',
     render: (item) => {
-      const per = item.per as number | undefined
-      return <span className="font-mono text-sm">{per?.toFixed(1) ?? '-'}</span>
-    },
-  },
-  {
-    key: 'pbr',
-    label: 'PBR',
-    width: 'w-16',
-    align: 'right',
-    render: (item) => {
-      const pbr = item.pbr as number | undefined
-      return <span className="font-mono text-sm">{pbr?.toFixed(2) ?? '-'}</span>
-    },
-  },
-  {
-    key: 'roe',
-    label: 'ROE',
-    width: 'w-16',
-    align: 'right',
-    render: (item) => {
-      const roe = item.roe as number | undefined
-      return <span className="font-mono text-sm">{roe ? `${roe.toFixed(1)}%` : '-'}</span>
+      const score = item.totalScore as number | undefined
+      return (
+        <span className="font-mono font-semibold text-primary">
+          {score?.toFixed(2) ?? '-'}
+        </span>
+      )
     },
   },
   {
@@ -288,20 +356,66 @@ export default function UniversePage() {
   const [market, setMarket] = useState<MarketType>('ALL')
   const [activeStep, setActiveStep] = useState<PipelineStep>('S1')
   const [showConditions, setShowConditions] = useState(false)
+  const [category, setCategory] = useState<RankingCategory>('trading')
+  const [useNaverRanking, setUseNaverRanking] = useState(false) // Naver 랭킹 모드
 
-  // S1은 trading 카테고리, S4는 top 카테고리 사용 (예시)
-  const category: RankingCategory = activeStep === 'S4' ? 'top' : 'trading'
+  // S1: Brain이 생성한 Universe 데이터 (기본)
+  const { data: universeData, isLoading: isLoadingUniverse, refetch: refetchUniverse } = useUniverse(market)
 
-  // 랭킹 데이터 조회
-  const { data: rankingData, isLoading, error, refetch } = useRanking(category, market)
+  // S1: Naver 랭킹 데이터 (버튼 클릭 시)
+  const { data: rankingData, isLoading: isLoadingRanking, error: errorRanking, refetch: refetchRanking } = useRanking(category, market)
 
-  // 파이프라인 단계별 종목 수 (예시 - 실제로는 API에서 가져와야 함)
+  // S2: 신호 데이터 조회
+  const { data: signalsData, isLoading: isLoadingSignals, refetch: refetchSignals } = useSignals(market)
+
+  // S3: 스크리닝 데이터 조회 (Hard Cut 통과 종목)
+  const { data: screenedData, isLoading: isLoadingScreened, refetch: refetchScreened } = useScreened(market)
+
+  // S4: 파이프라인 랭킹 조회
+  const { data: pipelineRankingData, isLoading: isLoadingPipelineRanking, refetch: refetchPipelineRanking } = usePipelineRanking(market)
+
+  // S5: 포트폴리오 조회
+  const { data: portfolioData, isLoading: isLoadingPortfolio, refetch: refetchPortfolio } = usePortfolio()
+
+  // 로딩 상태 (현재 단계에 따라)
+  const isLoading = activeStep === 'S1'
+    ? (useNaverRanking ? isLoadingRanking : isLoadingUniverse)
+    : activeStep === 'S2' ? isLoadingSignals
+    : activeStep === 'S3' ? isLoadingScreened
+    : activeStep === 'S4' ? isLoadingPipelineRanking
+    : activeStep === 'S5' ? isLoadingPortfolio
+    : isLoadingUniverse
+
+  const error = errorRanking
+
+  // 새로고침 핸들러
+  const refetch = () => {
+    if (activeStep === 'S1') {
+      if (useNaverRanking) refetchRanking()
+      else refetchUniverse()
+    }
+    else if (activeStep === 'S2') refetchSignals()
+    else if (activeStep === 'S3') refetchScreened()
+    else if (activeStep === 'S4') refetchPipelineRanking()
+    else if (activeStep === 'S5') refetchPortfolio()
+    else refetchUniverse()
+  }
+
+  // Naver 랭킹 버튼 핸들러
+  const handleNaverRankingClick = () => {
+    setUseNaverRanking(true)
+    refetchRanking()
+  }
+
+  // 파이프라인 단계별 종목 수 (실제 데이터 기반)
   const pipelineCounts: Partial<Record<PipelineStep, number>> = {
-    S1: 2847,
-    S2: 2847,
-    S3: 523,
-    S4: 50,
-    S5: 20,
+    S1: useNaverRanking
+      ? (rankingData?.data?.count ?? 0)
+      : (universeData?.data?.count ?? 0),
+    S2: signalsData?.data?.count ?? 0,
+    S3: screenedData?.data?.count ?? 0, // S3: Hard Cut 통과 종목
+    S4: pipelineRankingData?.data?.count ?? 0,
+    S5: portfolioData?.data?.count ?? 0,
   }
 
   // 스텝 클릭 핸들러
@@ -316,50 +430,138 @@ export default function UniversePage() {
 
   // 단계별 데이터 변환
   const tableData: StockDataItem[] = useMemo(() => {
-    if (!rankingData?.data?.items) return []
-
-    const baseData = rankingData.data.items.map((item, idx) => ({
-      code: item.StockCode,
-      name: item.StockName,
-      market: item.Market,
-      price: item.CurrentPrice,
-      change: item.PriceChange,
-      changeRate: item.ChangeRate,
-      volume: item.Volume,
-      marketCap: item.MarketCap,
-      rank: idx + 1,
-      uniqueKey: `${item.Market}_${item.StockCode}`,
-      // 시뮬레이션 데이터 (실제로는 API에서)
-      momentum: Math.random() * 2 - 1,
-      technical: Math.random() * 2 - 1,
-      value: Math.random() * 2 - 1,
-      quality: Math.random() * 2 - 1,
-      flow: Math.random() * 2 - 1,
-      event: Math.random() * 2 - 1,
-      per: Math.random() * 30 + 5,
-      pbr: Math.random() * 3 + 0.3,
-      roe: Math.random() * 20,
-      passStatus: Math.random() > 0.3 ? 'pass' : 'fail',
-      totalScore: Math.random() * 100,
-      rankChange: Math.floor(Math.random() * 10) - 5,
-      weight: Math.random() * 10,
-      targetQty: Math.floor(Math.random() * 100),
-      returnRate: Math.random() * 40 - 20,
-      holdingDays: Math.floor(Math.random() * 30),
-    }))
-
-    // 단계별 필터링
-    switch (activeStep) {
-      case 'S3':
-        return baseData.filter((item) => item.passStatus === 'pass').slice(0, 100)
-      case 'S4':
-        return baseData.slice(0, 50)
-      case 'S5':
-        return baseData.slice(0, 20)
-      default:
-        return baseData
+    // S2: 신호 데이터
+    if (activeStep === 'S2' && signalsData?.data?.items) {
+      return signalsData.data.items.map((item, idx) => ({
+        code: item.stockCode,
+        name: item.stockName,
+        market: item.market,
+        price: 0,
+        change: 0,
+        changeRate: 0,
+        volume: 0,
+        marketCap: 0,
+        rank: idx + 1,
+        uniqueKey: `${item.market}_${item.stockCode}`,
+        momentum: item.momentum,
+        technical: item.technical,
+        value: item.value,
+        quality: item.quality,
+        flow: item.flow,
+        event: item.event,
+        totalScore: item.totalScore,
+      }))
     }
-  }, [rankingData, activeStep])
+
+    // S4: 파이프라인 랭킹 데이터
+    if (activeStep === 'S4' && pipelineRankingData?.data?.items) {
+      return pipelineRankingData.data.items.map((item) => ({
+        code: item.stockCode,
+        name: item.stockName,
+        market: item.market,
+        price: item.currentPrice,
+        change: 0,
+        changeRate: item.changeRate,
+        volume: 0,
+        marketCap: 0,
+        rank: item.rank,
+        uniqueKey: `${item.market}_${item.stockCode}`,
+        momentum: item.momentum,
+        technical: item.technical,
+        value: item.value,
+        quality: item.quality,
+        flow: item.flow,
+        event: item.event,
+        totalScore: item.totalScore,
+        rankChange: 0,
+      }))
+    }
+
+    // S5: 포트폴리오 데이터
+    if (activeStep === 'S5' && portfolioData?.data?.positions) {
+      return portfolioData.data.positions.map((item, idx) => ({
+        code: item.stockCode,
+        name: item.stockName,
+        market: item.market,
+        price: item.currentPrice,
+        change: 0,
+        changeRate: item.changeRate,
+        volume: 0,
+        marketCap: 0,
+        rank: idx + 1,
+        uniqueKey: `${item.market}_${item.stockCode}`,
+        weight: item.weight * 100, // 비중을 퍼센트로
+        targetQty: item.targetQty,
+        returnRate: item.changeRate,
+        holdingDays: 0,
+        action: item.action,
+        reason: item.reason,
+      }))
+    }
+
+    // S1: Universe 데이터 (Brain이 생성) 또는 Naver 랭킹 데이터
+    if (activeStep === 'S1') {
+      if (useNaverRanking && rankingData?.data?.items) {
+        // Naver 랭킹 데이터
+        return rankingData.data.items.map((item, idx) => ({
+          code: item.StockCode,
+          name: item.StockName,
+          market: item.Market,
+          price: item.CurrentPrice,
+          change: item.PriceChange,
+          changeRate: item.ChangeRate,
+          volume: item.Volume,
+          marketCap: item.MarketCap,
+          rank: idx + 1,
+          uniqueKey: `${item.Market}_${item.StockCode}`,
+        }))
+      }
+
+      // Universe 데이터 (기본)
+      if (universeData?.data?.items) {
+        return universeData.data.items.map((item, idx) => ({
+          code: item.stockCode,
+          name: item.stockName,
+          market: item.market,
+          price: item.currentPrice,
+          change: 0,
+          changeRate: item.changeRate,
+          volume: item.volume,
+          marketCap: item.marketCap,
+          rank: idx + 1,
+          uniqueKey: `${item.market}_${item.stockCode}`,
+        }))
+      }
+
+      return []
+    }
+
+    // S3: Screener - Hard Cut 통과 종목 (API로 필터링된 데이터)
+    if (activeStep === 'S3' && screenedData?.data?.items) {
+      return screenedData.data.items.map((item, idx) => ({
+        code: item.stockCode,
+        name: item.stockName,
+        market: item.market,
+        price: 0,
+        change: 0,
+        changeRate: 0,
+        volume: 0,
+        marketCap: 0,
+        rank: idx + 1,
+        uniqueKey: `${item.market}_${item.stockCode}`,
+        momentum: item.momentum,
+        technical: item.technical,
+        value: item.value,
+        quality: item.quality,
+        flow: item.flow,
+        event: item.event,
+        totalScore: item.totalScore,
+        passStatus: item.passedAll ? 'pass' : 'fail',
+      }))
+    }
+
+    return []
+  }, [rankingData, universeData, signalsData, screenedData, pipelineRankingData, portfolioData, activeStep, useNaverRanking])
 
   // 검색 필터링
   const filteredData = useMemo(() => {
@@ -431,6 +633,39 @@ export default function UniversePage() {
           </Button>
         ))}
 
+        {/* S1일 때 카테고리 필터 + 네이버 실시간 버튼 */}
+        {activeStep === 'S1' && (
+          <>
+            <div className="w-px h-6 bg-border mx-2" />
+            {CATEGORY_OPTIONS.map((opt) => (
+              <Button
+                key={opt.value}
+                variant={category === opt.value ? 'secondary' : 'ghost'}
+                size="sm"
+                className={cn(
+                  'h-8 px-3 text-sm',
+                  category === opt.value && 'bg-secondary font-medium'
+                )}
+                onClick={() => setCategory(opt.value)}
+              >
+                {opt.label}
+              </Button>
+            ))}
+            {/* 네이버 실시간 가져오기 버튼 */}
+            <Button
+              variant={useNaverRanking ? 'default' : 'outline'}
+              size="sm"
+              className={cn(
+                'h-8 px-3 text-sm ml-2',
+                useNaverRanking && 'bg-green-600 hover:bg-green-700 text-white'
+              )}
+              onClick={handleNaverRankingClick}
+            >
+              {useNaverRanking ? '✓ 실시간' : '네이버 실시간 가져오기'}
+            </Button>
+          </>
+        )}
+
         {/* 구분선 */}
         <div className="w-px h-6 bg-border mx-2" />
 
@@ -465,7 +700,9 @@ export default function UniversePage() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-lg flex items-center gap-2">
-            {STEP_TITLES[activeStep]}
+            {activeStep === 'S1'
+              ? (useNaverRanking ? `Naver 실시간 - ${CATEGORY_TITLES[category]}` : `Universe - ${CATEGORY_TITLES[category]}`)
+              : STEP_TITLES[activeStep]}
             <span className="text-muted-foreground font-normal">
               ({searchTerm ? `검색 ${filteredData.length}개` : `${filteredData.length}개`})
             </span>
@@ -481,6 +718,7 @@ export default function UniversePage() {
             <StockDataTable
               data={filteredData}
               extraColumns={currentColumns}
+              showSummary={activeStep === 'S2'}
               emptyMessage="조건에 맞는 종목이 없습니다."
             />
           )}
