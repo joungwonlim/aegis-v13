@@ -15,6 +15,14 @@ import (
 	"github.com/wonny/aegis/v13/backend/internal/external/naver"
 )
 
+// MarketCapRecord represents market cap data for database storage
+type MarketCapRecord struct {
+	StockCode         string
+	TradeDate         time.Time
+	MarketCap         int64
+	SharesOutstanding int64
+}
+
 // Repository handles data persistence for S0
 type Repository struct {
 	db *pgxpool.Pool
@@ -353,6 +361,12 @@ func (r *Repository) SaveMarketCaps(ctx context.Context, caps []naver.MarketCapD
 		return nil
 	}
 
+	// Debug: verify database connection
+	var dbName, userName string
+	r.db.QueryRow(ctx, "SELECT current_database(), current_user").Scan(&dbName, &userName)
+	fmt.Printf("[SaveMarketCaps] Connected to DB: %s, User: %s\n", dbName, userName)
+	fmt.Printf("[SaveMarketCaps] Starting to save %d records\n", len(caps))
+
 	query := `
 		INSERT INTO data.market_cap (
 			stock_code, trade_date, market_cap, shares_outstanding, created_at
@@ -363,25 +377,121 @@ func (r *Repository) SaveMarketCaps(ctx context.Context, caps []naver.MarketCapD
 			updated_at = NOW()
 	`
 
-	// Batch insert using transactions
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
+	// Batch insert (500 records per batch to avoid transaction timeout)
+	batchSize := 500
+	totalSaved := 0
 
-	for _, cap := range caps {
-		_, err := tx.Exec(ctx, query,
-			cap.StockCode, cap.TradeDate, cap.MarketCap, cap.SharesOutstanding,
-		)
-		if err != nil {
-			return fmt.Errorf("insert market cap for %s: %w", cap.StockCode, err)
+	for i := 0; i < len(caps); i += batchSize {
+		end := i + batchSize
+		if end > len(caps) {
+			end = len(caps)
 		}
+		batch := caps[i:end]
+
+		// Debug first item in batch
+		if i == 0 && len(batch) > 0 {
+			fmt.Printf("[SaveMarketCaps] First item: code=%s, date=%v, cap=%d, shares=%d\n",
+				batch[0].StockCode, batch[0].TradeDate, batch[0].MarketCap, batch[0].SharesOutstanding)
+		}
+
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin transaction (batch %d): %w", i/batchSize, err)
+		}
+
+		for _, cap := range batch {
+			result, err := tx.Exec(ctx, query,
+				cap.StockCode, cap.TradeDate, cap.MarketCap, cap.SharesOutstanding,
+			)
+			if err != nil {
+				tx.Rollback(ctx)
+				return fmt.Errorf("insert market cap for %s: %w", cap.StockCode, err)
+			}
+			// Debug: check rows affected for first batch
+			if i == 0 {
+				fmt.Printf("[SaveMarketCaps] Exec result: rows=%d\n", result.RowsAffected())
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit transaction (batch %d): %w", i/batchSize, err)
+		}
+
+		// Verify after first batch
+		if i == 0 {
+			var countAfterBatch int
+			r.db.QueryRow(ctx, "SELECT COUNT(*) FROM data.market_cap WHERE trade_date = $1", batch[0].TradeDate).Scan(&countAfterBatch)
+			fmt.Printf("[SaveMarketCaps] Count after first batch (date=%v): %d\n", batch[0].TradeDate, countAfterBatch)
+		}
+
+		totalSaved += len(batch)
+		fmt.Printf("[SaveMarketCaps] Batch %d committed: %d records (total: %d)\n", i/batchSize, len(batch), totalSaved)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
+	fmt.Printf("[SaveMarketCaps] Completed: %d records saved\n", totalSaved)
+
+	// Debug: verify actual count in database
+	var actualCount int
+	r.db.QueryRow(ctx, "SELECT COUNT(*) FROM data.market_cap").Scan(&actualCount)
+	fmt.Printf("[SaveMarketCaps] Verification: actual count in DB = %d\n", actualCount)
+
+	return nil
+}
+
+// SaveMarketCapsFromKRX saves market cap data from KRX API (with shares outstanding)
+// ⭐ SSOT: KRX 시가총액/상장주식수 저장은 이 함수에서만
+func (r *Repository) SaveMarketCapsFromKRX(ctx context.Context, items []krx.MarketCapItem) error {
+	if len(items) == 0 {
+		return nil
 	}
+
+	fmt.Printf("[SaveMarketCapsFromKRX] Starting to save %d records\n", len(items))
+
+	query := `
+		INSERT INTO data.market_cap (
+			stock_code, trade_date, market_cap, shares_outstanding, created_at
+		) VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (stock_code, trade_date) DO UPDATE SET
+			market_cap = EXCLUDED.market_cap,
+			shares_outstanding = EXCLUDED.shares_outstanding,
+			updated_at = NOW()
+	`
+
+	// Batch insert (500 records per batch)
+	batchSize := 500
+	totalSaved := 0
+
+	for i := 0; i < len(items); i += batchSize {
+		end := i + batchSize
+		if end > len(items) {
+			end = len(items)
+		}
+		batch := items[i:end]
+
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin transaction (batch %d): %w", i/batchSize, err)
+		}
+
+		for _, item := range batch {
+			_, err := tx.Exec(ctx, query,
+				item.StockCode, item.TradeDate, item.MarketCap, item.SharesOutstanding,
+			)
+			if err != nil {
+				tx.Rollback(ctx)
+				return fmt.Errorf("insert market cap for %s: %w", item.StockCode, err)
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit transaction (batch %d): %w", i/batchSize, err)
+		}
+
+		totalSaved += len(batch)
+		fmt.Printf("[SaveMarketCapsFromKRX] Batch %d committed: %d records (total: %d)\n", i/batchSize, len(batch), totalSaved)
+	}
+
+	fmt.Printf("[SaveMarketCapsFromKRX] Completed: %d records saved\n", totalSaved)
 
 	return nil
 }

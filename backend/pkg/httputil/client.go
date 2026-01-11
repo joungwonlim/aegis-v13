@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/wonny/aegis/v13/backend/pkg/config"
@@ -106,6 +108,11 @@ func (c *Client) PostJSON(ctx context.Context, url string, data interface{}) (*h
 	}
 
 	return c.Post(ctx, url, "application/json", bytes.NewReader(jsonData))
+}
+
+// PostForm performs a POST request with form data
+func (c *Client) PostForm(ctx context.Context, targetURL string, formData url.Values) (*http.Response, error) {
+	return c.Post(ctx, targetURL, "application/x-www-form-urlencoded", strings.NewReader(formData.Encode()))
 }
 
 // do executes the request with retry logic and logging

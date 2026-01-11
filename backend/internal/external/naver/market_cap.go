@@ -69,45 +69,36 @@ func (c *Client) FetchMarketCapForStock(ctx context.Context, stockCode string) (
 // FetchAllMarketCaps fetches market caps for all stocks in a market
 // ⭐ SSOT: 전체 종목 시가총액 호출은 이 함수에서만
 func (c *Client) FetchAllMarketCaps(ctx context.Context, market string) ([]MarketCapData, error) {
-	allData := []MarketCapData{}
+	// Naver API pagination doesn't work properly (all pages return same data)
+	// Use large pageSize to fetch all stocks at once
+	// KOSPI ~960, KOSDAQ ~1830 stocks
+	url := fmt.Sprintf("https://stock.naver.com/api/domestic/market/stock/default?orderType=marketSum&marketType=%s&page=1&pageSize=2000", market)
 
-	// Fetch multiple pages (KOSPI/KOSDAQ each have ~1000 stocks, 100 per page)
-	maxPages := 15
-	for page := 1; page <= maxPages; page++ {
-		url := fmt.Sprintf("https://stock.naver.com/api/domestic/market/stock/default?orderType=marketSum&marketType=%s&page=%d&pageSize=100", market, page)
+	resp, err := c.httpClient.Get(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("fetch market cap: %w", err)
+	}
+	defer resp.Body.Close()
 
-		resp, err := c.httpClient.Get(ctx, url)
+	var items []RankingStockItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	c.logger.WithFields(map[string]interface{}{
+		"market": market,
+		"count":  len(items),
+	}).Info("Fetched market caps")
+
+	// Convert to MarketCapData
+	allData := make([]MarketCapData, 0, len(items))
+	for _, item := range items {
+		data, err := parseMarketCapData(item)
 		if err != nil {
-			c.logger.WithError(err).WithField("page", page).Warn("Failed to fetch market cap page")
+			c.logger.WithError(err).WithField("stock_code", item.ItemCode).Debug("Failed to parse market cap")
 			continue
 		}
-
-		var items []RankingStockItem
-		if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-			resp.Body.Close()
-			c.logger.WithError(err).WithField("page", page).Warn("Failed to decode market cap page")
-			continue
-		}
-		resp.Body.Close()
-
-		if len(items) == 0 {
-			break
-		}
-
-		for _, item := range items {
-			data, err := parseMarketCapData(item)
-			if err != nil {
-				c.logger.WithError(err).WithField("stock_code", item.ItemCode).Debug("Failed to parse market cap")
-				continue
-			}
-			allData = append(allData, *data)
-		}
-
-		c.logger.WithFields(map[string]interface{}{
-			"market": market,
-			"page":   page,
-			"count":  len(items),
-		}).Debug("Fetched market cap page")
+		allData = append(allData, *data)
 	}
 
 	return allData, nil

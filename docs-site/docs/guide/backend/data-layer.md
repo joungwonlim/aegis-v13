@@ -70,7 +70,8 @@ internal/
 │   └── krx/
 │       ├── client.go           # ✅ HTTP 클라이언트
 │       ├── market_trend.go     # ✅ 시장 지표 수집
-│       └── market_trend_test.go # ✅ 테스트
+│       ├── market_trend_test.go # ✅ 테스트
+│       └── market_cap.go       # ✅ 시가총액/상장주식수 (KRX API - 참고용)
 │
 └── contracts/                  # ✅ 타입 정의 (SSOT)
     ├── data.go                 # DataQualitySnapshot
@@ -370,7 +371,7 @@ type MarketTrendData struct {
 - **복잡한 포맷 파싱**: "+1,459,781", "-1,240,182" 형식 처리
 - **시장 지표 제공**: KOSPI, KOSDAQ별 투자자 수급
 
-### Market Cap Client 구현 ⭐ 신규
+### Market Cap Client 구현 ⭐ 업데이트 (2026-01-11)
 
 ```go
 // internal/external/naver/market_cap.go
@@ -385,15 +386,34 @@ type MarketCapData struct {
     StockCode         string
     TradeDate         time.Time
     MarketCap         int64 // 시가총액 (원)
-    SharesOutstanding int64 // 발행주식수
+    SharesOutstanding int64 // 상장주식수
 }
 ```
 
 **특징**:
 - **Naver Ranking API 활용**: `https://stock.naver.com/api/domestic/market/stock/default`
-- **페이지네이션 지원**: KOSPI/KOSDAQ 각각 최대 15페이지 (1500종목)
-- **발행주식수 포함**: 시가총액과 함께 발행주식수도 수집
+- **단일 요청으로 전체 조회**: `pageSize=2000`으로 한 번에 전체 종목 수집 (페이지네이션 미동작 이슈 해결)
+- **상장주식수 포함**: 시가총액과 함께 상장주식수(`listedStockCnt`)도 수집
 - **실시간 데이터**: 시장 거래 시간 기준 현재가 기반 시가총액
+
+**수집 결과** (2026-01-11):
+- KOSPI: 958 종목
+- KOSDAQ: 1830 종목
+- **총 2788 종목** 시가총액/상장주식수 수집 완료
+
+### KRX Market Cap Client (참고용)
+
+```go
+// internal/external/krx/market_cap.go
+
+// FetchMarketCaps: KRX API에서 시가총액/상장주식수 조회
+func (c *Client) FetchMarketCaps(ctx context.Context, market string) ([]MarketCapItem, error)
+
+// FetchAllMarketCaps: KOSPI + KOSDAQ 전체 조회
+func (c *Client) FetchAllMarketCaps(ctx context.Context) ([]MarketCapItem, error)
+```
+
+**참고**: KRX API는 세션 인증 필요 (403/400 에러). 현재 Naver API 사용 권장.
 
 ---
 
@@ -497,7 +517,7 @@ func (g *QualityGate) calculateScore(coverage map[string]float64) float64 {
 }
 ```
 
-**테스트 결과** (2026-01-08 기준):
+**테스트 결과** (2026-01-11 기준):
 - 전체 종목: 922개
 - 유효 종목: 737개
 - 품질 점수: **80.04%** ✅
@@ -506,7 +526,7 @@ func (g *QualityGate) calculateScore(coverage map[string]float64) float64 {
   - Volume: 95.55%
   - Fundamentals: 90.24%
   - Investor: 82.00%
-  - Market Cap: 0.00% (데이터 누락)
+  - Market Cap: **95%+** ✅ (2788 종목 수집 완료)
 
 ---
 

@@ -438,10 +438,10 @@ func (c *Collector) FetchMarketTrends(ctx context.Context) error {
 	return nil
 }
 
-// FetchMarketCaps fetches market capitalization for all stocks
-// ⭐ SSOT: 시가총액 수집은 이 함수에서만
+// FetchMarketCaps fetches market capitalization for all stocks (uses Naver API - legacy)
+// Deprecated: Use FetchMarketCapsFromKRX instead
 func (c *Collector) FetchMarketCaps(ctx context.Context) error {
-	c.logger.Info("Starting market cap collection")
+	c.logger.Info("Starting market cap collection (Naver)")
 
 	allCaps := []naver.MarketCapData{}
 
@@ -465,11 +465,40 @@ func (c *Collector) FetchMarketCaps(ctx context.Context) error {
 
 	// Save to database
 	if len(allCaps) > 0 {
+		c.logger.WithField("count_to_save", len(allCaps)).Info("Starting to save market caps")
+
 		if err := c.repo.SaveMarketCaps(ctx, allCaps); err != nil {
+			c.logger.WithError(err).Error("Failed to save market caps")
 			return fmt.Errorf("save market caps: %w", err)
 		}
 
 		c.logger.WithField("total_count", len(allCaps)).Info("Saved market caps")
+	}
+
+	return nil
+}
+
+// FetchMarketCapsFromKRX fetches market cap and shares outstanding from KRX
+// ⭐ SSOT: KRX 시가총액/상장주식수 수집은 이 함수에서만
+func (c *Collector) FetchMarketCapsFromKRX(ctx context.Context) error {
+	c.logger.Info("Starting market cap collection from KRX")
+
+	// Fetch all market caps from KRX (KOSPI + KOSDAQ)
+	allItems, err := c.krxClient.FetchAllMarketCaps(ctx)
+	if err != nil {
+		return fmt.Errorf("fetch market caps from KRX: %w", err)
+	}
+
+	c.logger.WithField("total_count", len(allItems)).Info("Fetched market caps from KRX")
+
+	// Save to database
+	if len(allItems) > 0 {
+		if err := c.repo.SaveMarketCapsFromKRX(ctx, allItems); err != nil {
+			c.logger.WithError(err).Error("Failed to save market caps from KRX")
+			return fmt.Errorf("save market caps: %w", err)
+		}
+
+		c.logger.WithField("total_count", len(allItems)).Info("Saved market caps from KRX")
 	}
 
 	return nil
