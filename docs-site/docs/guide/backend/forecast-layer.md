@@ -54,6 +54,7 @@ internal/forecast/
 ├── tracker.go       # 전방 성과 추적
 ├── aggregator.go    # 통계 집계
 ├── predictor.go     # 예측 생성
+├── validator.go     # 예측 검증 (S7 Audit용)
 └── repository.go    # DB 저장소
 ```
 
@@ -147,6 +148,203 @@ confidence := min(1.0, sampleCount / 30.0)
 
 ---
 
+## Forecast Validation (S7 Audit)
+
+예측 정확도를 검증하고 모델 품질을 측정합니다. 이 검증 시스템은 S7 Audit 레이어의 핵심 구성요소로, 예측 모델의 품질을 지속적으로 모니터링합니다.
+
+### 검증 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Forecast Validation Pipeline                  │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+        ┌──────────────────────┼──────────────────────┐
+        ▼                      ▼                      ▼
+┌───────────────────┐  ┌───────────────────┐  ┌───────────────────┐
+│ 1. Prediction     │  │ 2. Actual Result  │  │ 3. Comparison     │
+│    Retrieval      │  │    Collection     │  │    & Scoring      │
+├───────────────────┤  ├───────────────────┤  ├───────────────────┤
+│ • 과거 예측값     │  │ • 5일 후 실제값   │  │ • 오차 계산       │
+│ • 모델 버전별     │  │ • forward_perf    │  │ • 방향성 체크     │
+│ • 이벤트 타입별   │  │   테이블 조회     │  │ • 메트릭 집계     │
+└───────────────────┘  └───────────────────┘  └───────────────────┘
+                               │
+                               ▼
+                ┌───────────────────────────────────┐
+                │       AccuracyReport              │
+                ├───────────────────────────────────┤
+                │ • MAE (평균 절대 오차)            │
+                │ • RMSE (평균 제곱근 오차)         │
+                │ • Hit Rate (방향성 적중률)        │
+                │ • Mean Error (편향)               │
+                │ • 이벤트 타입별 분석              │
+                └───────────────────────────────────┘
+```
+
+### Validator
+
+```go
+// internal/forecast/validator.go
+
+type Validator struct {
+    repo         *Repository
+    predictor    *Predictor
+    modelVersion string          // 다중 모델 비교용 (A/B 테스트)
+    log          zerolog.Logger
+}
+
+// NewValidator Validator 생성
+func NewValidator(repo *Repository, predictor *Predictor, modelVersion string, log zerolog.Logger) *Validator {
+    return &Validator{
+        repo:         repo,
+        predictor:    predictor,
+        modelVersion: modelVersion,
+        log:          log.With().Str("component", "forecast_validator").Logger(),
+    }
+}
+
+// ValidateAll 전체 검증 - 완료된 이벤트 모두 검증
+func (v *Validator) ValidateAll(ctx context.Context) ([]risk.ValidationResult, error)
+
+// ValidateRange 기간별 검증
+func (v *Validator) ValidateRange(ctx context.Context, from, to time.Time) ([]risk.ValidationResult, error)
+
+// CalculateAccuracy 정확도 리포트 생성
+func (v *Validator) CalculateAccuracy(ctx context.Context, validations []risk.ValidationResult) *risk.AccuracyReport
+
+// CalculateCalibrationBins 캘리브레이션 빈 계산
+func (v *Validator) CalculateCalibrationBins(ctx context.Context, validations []risk.ValidationResult, numBins int) []risk.CalibrationBin
+```
+
+### 검증 메트릭
+
+| 메트릭 | 설명 | 계산 방법 | 목표 |
+|--------|------|-----------|------|
+| **MAE** | Mean Absolute Error | `Σ|actual - predicted| / n` | < 2% |
+| **RMSE** | Root Mean Squared Error | `√(Σ(actual - predicted)² / n)` | < 3% |
+| **Hit Rate** | 방향성 적중률 | `(부호 일치 수) / n` | > 55% |
+| **Mean Error** | 편향 (bias) | `Σ(actual - predicted) / n` | ~0% |
+
+**메트릭 해석**:
+- **MAE**: 예측 오차의 평균 크기. 낮을수록 좋음
+- **RMSE**: 큰 오차에 더 큰 패널티. MAE보다 이상치에 민감
+- **Hit Rate**: 상승/하락 방향만 맞췄는지. 55% 이상이면 유의미한 예측력
+- **Mean Error**: 양수면 과소예측, 음수면 과대예측. 0에 가까워야 함
+
+### ValidationResult
+
+```go
+// internal/risk/types.go
+
+type ValidationResult struct {
+    EventID      int64     `json:"event_id"`
+    ModelVersion string    `json:"model_version"`   // A/B 테스트용
+    Code         string    `json:"code"`
+    EventType    string    `json:"event_type"`
+    PredictedRet float64   `json:"predicted_ret"`   // 예측 수익률 (5일)
+    ActualRet    float64   `json:"actual_ret"`      // 실제 수익률 (5일)
+    Error        float64   `json:"error"`           // 오차 (actual - predicted)
+    AbsError     float64   `json:"abs_error"`       // 절대 오차
+    DirectionHit bool      `json:"direction_hit"`   // 방향성 적중 (부호 일치)
+    ValidatedAt  time.Time `json:"validated_at"`
+}
+```
+
+### AccuracyReport
+
+```go
+// internal/risk/types.go
+
+type AccuracyReport struct {
+    ModelVersion string    `json:"model_version"`
+    Level        string    `json:"level"`           // ALL, EVENT_TYPE, CODE
+    Key          string    `json:"key"`             // level에 따른 키
+    EventType    string    `json:"event_type"`
+    SampleCount  int       `json:"sample_count"`
+    MAE          float64   `json:"mae"`             // Mean Absolute Error
+    RMSE         float64   `json:"rmse"`            // Root Mean Squared Error
+    HitRate      float64   `json:"hit_rate"`        // 방향성 적중률 (0~1)
+    MeanError    float64   `json:"mean_error"`      // 편향 (bias)
+    UpdatedAt    time.Time `json:"updated_at"`
+}
+```
+
+### 캘리브레이션 (Reliability Diagram)
+
+예측 신뢰도와 실제 적중률의 일치도를 측정합니다. 잘 캘리브레이션된 모델은 "80% 신뢰도 예측의 80%가 맞아야" 합니다.
+
+```go
+// CalibrationBin 캘리브레이션 빈
+type CalibrationBin struct {
+    Bin          int     `json:"bin"`           // 빈 번호 (0-9)
+    SampleCount  int     `json:"sample_count"`  // 샘플 수
+    AvgPredicted float64 `json:"avg_predicted"` // 빈 내 평균 예측값
+    AvgActual    float64 `json:"avg_actual"`    // 빈 내 평균 실제값
+    HitRate      float64 `json:"hit_rate"`      // 빈 내 적중률
+}
+
+// 캘리브레이션 분석 예시
+bins := validator.CalculateCalibrationBins(ctx, validations, 10)
+
+// 이상적인 결과 (잘 캘리브레이션됨):
+// Bin 0 (0-10% 신뢰도): HitRate ~10%
+// Bin 5 (50-60% 신뢰도): HitRate ~55%
+// Bin 9 (90-100% 신뢰도): HitRate ~95%
+```
+
+### 모델 버전 관리 (A/B 테스트)
+
+동일 이벤트에 대해 여러 모델 버전의 예측을 비교할 수 있습니다.
+
+```go
+// PK: (event_id, model_version) - 동일 이벤트, 다른 모델 비교 가능
+
+// 예: v1.0.0 vs v2.0.0 비교
+v1Validator := forecast.NewValidator(repo, predictor, "v1.0.0", log)
+v2Validator := forecast.NewValidator(repo, predictor, "v2.0.0", log)
+
+v1Results, _ := v1Validator.ValidateAll(ctx)
+v2Results, _ := v2Validator.ValidateAll(ctx)
+
+v1Report := v1Validator.CalculateAccuracy(ctx, v1Results)
+v2Report := v2Validator.CalculateAccuracy(ctx, v2Results)
+
+// v2가 더 나은지 비교
+if v2Report.HitRate > v1Report.HitRate {
+    // v2 모델 채택
+}
+```
+
+### 검증 결과 예시
+
+```
+══════════════════════════════════════════════════════════════════
+              Forecast Validation Report (v1.0.0)
+══════════════════════════════════════════════════════════════════
+
+📊 Summary
+  Events Validated: 146,792
+  Model Version: v1.0.0
+
+📈 Accuracy Metrics
+  MAE (Mean Absolute Error): 3.42%
+  RMSE (Root Mean Square Error): 5.18%
+  Hit Rate (Direction Accuracy): 55.46%
+  Mean Error (Bias): +0.12%
+
+📋 By Event Type
+  E1_SURGE:
+    Count: 98,234  |  MAE: 3.28%  |  Hit Rate: 56.12%
+  E2_GAP_SURGE:
+    Count: 48,558  |  MAE: 3.71%  |  Hit Rate: 54.13%
+
+✅ Model Quality: ACCEPTABLE (Hit Rate > 55%)
+══════════════════════════════════════════════════════════════════
+```
+
+---
+
 ## CLI 명령어
 
 ### 전체 파이프라인
@@ -172,6 +370,25 @@ go run ./cmd/quant forecast aggregate
 
 ```bash
 go run ./cmd/quant forecast predict --code 005930
+```
+
+### 예측 검증 (S7 Audit)
+
+```bash
+# 전체 기간 검증
+go run ./cmd/quant forecast validate
+
+# 날짜 범위 지정
+go run ./cmd/quant forecast validate --from 2024-01-01 --to 2024-06-30
+
+# 모델 버전 지정 (A/B 테스트)
+go run ./cmd/quant forecast validate --model v2.0.0
+
+# 집계 레벨별 리포트
+go run ./cmd/quant forecast validate --level EVENT_TYPE
+
+# JSON 출력
+go run ./cmd/quant forecast validate --output json
 ```
 
 ---
@@ -275,6 +492,51 @@ func (j *ForecastJob) Run(ctx context.Context) error {
 | `avg_ret_*` | NUMERIC(8,4) | 평균 수익률 |
 | `win_rate_*` | NUMERIC(5,4) | 승률 |
 | `p10_mdd` | NUMERIC(8,4) | 하위 10% MDD |
+
+### analytics.forecast_validations
+
+예측 검증 결과 (모델 버전별)
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `event_id` | BIGINT | FK → forecast_events (PK) |
+| `model_version` | VARCHAR(20) | 모델 버전 (PK) |
+| `code` | VARCHAR(20) | 종목코드 |
+| `event_type` | VARCHAR(20) | 이벤트 타입 |
+| `predicted_ret` | NUMERIC(8,4) | 예측 수익률 |
+| `actual_ret` | NUMERIC(8,4) | 실제 수익률 |
+| `error` | NUMERIC(8,4) | 오차 |
+| `abs_error` | NUMERIC(8,4) | 절대 오차 |
+| `direction_hit` | BOOLEAN | 방향성 적중 |
+
+### analytics.accuracy_reports
+
+집계 수준별 정확도 리포트
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `model_version` | VARCHAR(20) | 모델 버전 (PK) |
+| `level` | VARCHAR(20) | ALL/EVENT_TYPE/CODE (PK) |
+| `key` | VARCHAR(50) | 레벨별 키 (PK) |
+| `event_type` | VARCHAR(20) | 이벤트 타입 (PK) |
+| `mae` | NUMERIC(8,4) | Mean Absolute Error |
+| `rmse` | NUMERIC(8,4) | Root Mean Squared Error |
+| `hit_rate` | NUMERIC(5,4) | 방향성 적중률 |
+| `mean_error` | NUMERIC(8,4) | 편향 (bias) |
+
+### analytics.calibration_bins
+
+신뢰도 캘리브레이션 빈 (reliability diagram 용)
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `model_version` | VARCHAR(20) | 모델 버전 (PK) |
+| `horizon_days` | INT | 예측 기간 5/10/20일 (PK) |
+| `bin` | INT | 빈 번호 0-9 (PK) |
+| `sample_count` | INT | 샘플 수 |
+| `avg_predicted` | NUMERIC(8,4) | 빈 내 평균 예측값 |
+| `avg_actual` | NUMERIC(8,4) | 빈 내 평균 실제값 |
+| `hit_rate` | NUMERIC(5,4) | 빈 내 적중률 |
 
 ---
 

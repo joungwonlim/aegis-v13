@@ -88,11 +88,19 @@ CREATE SCHEMA analytics;  -- 이벤트 예측 (Forecast)
 └─────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        analytics schema (3 tables)                       │
+│                       analytics schema (9 tables)                        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  forecast_events ──────────▶ forward_performance                        │
 │         │                                                               │
-│         └──────────────────▶ forecast_stats                             │
+│         ├──────────────────▶ forecast_stats                             │
+│         │                                                               │
+│         └──────────────────▶ forecast_validations ──▶ accuracy_reports  │
+│                                      │                                  │
+│                                      └──────────────▶ calibration_bins  │
+│                                                                         │
+│  montecarlo_results ◀────── var_daily_snapshots                         │
+│         │                                                               │
+│         └──────────────────▶ stress_test_results                        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -673,6 +681,128 @@ CREATE INDEX idx_forecast_stats_lookup ON analytics.forecast_stats(level, key, e
 2. `SECTOR`: 같은 섹터 종목들의 통계
 3. `BUCKET`: 같은 시가총액 구간 (small/mid/large)
 4. `MARKET`: 전체 시장 평균
+
+### forecast_validations (예측 검증)
+
+```sql
+CREATE TABLE analytics.forecast_validations (
+    event_id      BIGINT NOT NULL REFERENCES analytics.forecast_events(id) ON DELETE CASCADE,
+    model_version VARCHAR(20) NOT NULL,       -- A/B 테스트용 모델 버전
+    code          VARCHAR(20) NOT NULL,
+    event_type    VARCHAR(20) NOT NULL,
+    predicted_ret NUMERIC(8,4),               -- 예측 수익률 (5일)
+    actual_ret    NUMERIC(8,4),               -- 실제 수익률 (5일)
+    error         NUMERIC(8,4),               -- 오차 (actual - predicted)
+    abs_error     NUMERIC(8,4),               -- 절대 오차
+    direction_hit BOOLEAN,                    -- 방향성 적중 (부호 일치)
+    validated_at  TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (event_id, model_version)
+);
+
+CREATE INDEX idx_forecast_validations_code ON analytics.forecast_validations(code);
+CREATE INDEX idx_forecast_validations_model ON analytics.forecast_validations(model_version);
+```
+
+### accuracy_reports (정확도 리포트)
+
+```sql
+CREATE TABLE analytics.accuracy_reports (
+    model_version VARCHAR(20) NOT NULL,
+    level         VARCHAR(20) NOT NULL,       -- ALL, EVENT_TYPE, CODE, SECTOR
+    key           VARCHAR(50) NOT NULL,       -- level에 따른 키 값
+    event_type    VARCHAR(20) NOT NULL DEFAULT 'ALL',
+    sample_count  INT NOT NULL,
+    mae           NUMERIC(8,4),               -- Mean Absolute Error
+    rmse          NUMERIC(8,4),               -- Root Mean Squared Error
+    hit_rate      NUMERIC(5,4),               -- 방향성 적중률 (0~1)
+    mean_error    NUMERIC(8,4),               -- 편향 (bias)
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (model_version, level, key, event_type)
+);
+
+CREATE INDEX idx_accuracy_reports_model ON analytics.accuracy_reports(model_version);
+```
+
+### calibration_bins (캘리브레이션 빈)
+
+```sql
+CREATE TABLE analytics.calibration_bins (
+    model_version VARCHAR(20) NOT NULL,
+    horizon_days  INT NOT NULL,               -- 예측 기간 (5, 10, 20일)
+    bin           INT NOT NULL,               -- 빈 번호 (0-9)
+    sample_count  INT NOT NULL,
+    avg_predicted NUMERIC(8,4),               -- 빈 내 평균 예측값
+    avg_actual    NUMERIC(8,4),               -- 빈 내 평균 실제값
+    hit_rate      NUMERIC(5,4),               -- 빈 내 적중률
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (model_version, horizon_days, bin)
+);
+```
+
+### montecarlo_results (Monte Carlo 결과)
+
+```sql
+CREATE TABLE analytics.montecarlo_results (
+    run_id              VARCHAR(50) PRIMARY KEY,
+    run_date            DATE NOT NULL,
+    decision_snapshot_id BIGINT REFERENCES audit.decision_snapshots(id),  -- 재현성용
+    config              JSONB NOT NULL,       -- MonteCarloConfig 전체 (num_simulations, method, seed 등)
+    input_sample_count  INT NOT NULL,         -- 입력 샘플 수
+    mean_return         NUMERIC(10,6),        -- 평균 수익률
+    std_dev             NUMERIC(10,6),        -- 표준편차
+    var_95              NUMERIC(10,6),        -- 95% VaR (손실=양수)
+    var_99              NUMERIC(10,6),        -- 99% VaR
+    cvar_95             NUMERIC(10,6),        -- 95% CVaR (Expected Shortfall)
+    cvar_99             NUMERIC(10,6),        -- 99% CVaR
+    percentiles         JSONB,                -- {1: -0.05, 5: -0.03, ..., 99: 0.08}
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_montecarlo_results_date ON analytics.montecarlo_results(run_date);
+CREATE INDEX idx_montecarlo_results_snapshot ON analytics.montecarlo_results(decision_snapshot_id);
+```
+
+### var_daily_snapshots (일별 VaR 스냅샷)
+
+```sql
+CREATE TABLE analytics.var_daily_snapshots (
+    snapshot_date   DATE NOT NULL,
+    portfolio_id    VARCHAR(50) NOT NULL DEFAULT 'main',
+    decision_snapshot_id BIGINT REFERENCES audit.decision_snapshots(id),
+    var_95          NUMERIC(10,6),
+    var_99          NUMERIC(10,6),
+    cvar_95         NUMERIC(10,6),
+    cvar_99         NUMERIC(10,6),
+    portfolio_value NUMERIC(15,2),            -- 당일 포트폴리오 가치
+    var_95_amount   NUMERIC(15,2),            -- VaR95 금액 (가치 × VaR%)
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (snapshot_date, portfolio_id)
+);
+
+CREATE INDEX idx_var_daily_date ON analytics.var_daily_snapshots(snapshot_date);
+```
+
+### stress_test_results (스트레스 테스트)
+
+```sql
+CREATE TABLE analytics.stress_test_results (
+    run_id              VARCHAR(50) NOT NULL,
+    scenario_name       VARCHAR(50) NOT NULL,
+    scenario_description TEXT,
+    portfolio_loss      NUMERIC(10,6),        -- 시나리오별 예상 손실률
+    loss_amount         NUMERIC(15,2),        -- 손실 금액
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (run_id, scenario_name)
+);
+
+CREATE INDEX idx_stress_test_run ON analytics.stress_test_results(run_id);
+```
+
+**주요 시나리오**:
+- `covid_crash`: 코로나 폭락 (-30%)
+- `interest_rate_shock`: 금리 급등 (-15%)
+- `tech_selloff`: 기술주 급락 (-25%)
+- `sector_rotation`: 섹터 순환 (-10%)
 
 ---
 

@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/wonny/aegis/v13/backend/internal/contracts"
 	"github.com/wonny/aegis/v13/backend/internal/forecast"
+	"github.com/wonny/aegis/v13/backend/internal/risk"
 	"github.com/wonny/aegis/v13/backend/internal/s0_data"
 	"github.com/wonny/aegis/v13/backend/pkg/config"
 	"github.com/wonny/aegis/v13/backend/pkg/database"
@@ -29,7 +32,8 @@ var forecastCmd = &cobra.Command{
   fill-forward 전방 성과 채우기
   aggregate    통계 집계
   run          전체 실행 (detect → fill-forward → aggregate)
-  predict      특정 종목 예측 조회`,
+  predict      특정 종목 예측 조회
+  validate     예측 vs 실제 검증 (S7)`,
 }
 
 var (
@@ -39,6 +43,13 @@ var (
 
 	// predict 플래그
 	predictCode string
+
+	// validate 플래그
+	validateFrom     string
+	validateTo       string
+	validateModel    string
+	validateLevel    string
+	validateOutput   string
 )
 
 var forecastDetectCmd = &cobra.Command{
@@ -98,6 +109,29 @@ Example:
 	RunE: runForecastPredict,
 }
 
+var forecastValidateCmd = &cobra.Command{
+	Use:   "validate",
+	Short: "예측 vs 실제 검증 (S7)",
+	Long: `예측 정확도를 검증하고 정확도 리포트를 생성합니다.
+
+검증 메트릭:
+- MAE (Mean Absolute Error): 평균 절대 오차
+- RMSE (Root Mean Squared Error): 평균 제곱근 오차
+- Hit Rate: 방향성 적중률 (예측과 실제 부호 일치)
+
+레벨별 집계:
+- ALL: 전체
+- EVENT_TYPE: 이벤트 타입별 (E1_SURGE, E2_GAP_SURGE)
+- CODE: 종목별
+
+Example:
+  go run ./cmd/quant forecast validate
+  go run ./cmd/quant forecast validate --from 2024-01-01 --to 2024-06-30
+  go run ./cmd/quant forecast validate --level EVENT_TYPE
+  go run ./cmd/quant forecast validate --model v1.0.0 --output json`,
+	RunE: runForecastValidate,
+}
+
 func init() {
 	rootCmd.AddCommand(forecastCmd)
 	forecastCmd.AddCommand(forecastDetectCmd)
@@ -105,6 +139,7 @@ func init() {
 	forecastCmd.AddCommand(forecastAggregateCmd)
 	forecastCmd.AddCommand(forecastRunCmd)
 	forecastCmd.AddCommand(forecastPredictCmd)
+	forecastCmd.AddCommand(forecastValidateCmd)
 
 	// detect 플래그
 	forecastDetectCmd.Flags().StringVar(&detectFrom, "from", "", "시작 날짜 (YYYY-MM-DD)")
@@ -117,6 +152,13 @@ func init() {
 	// predict 플래그
 	forecastPredictCmd.Flags().StringVar(&predictCode, "code", "", "종목 코드")
 	_ = forecastPredictCmd.MarkFlagRequired("code")
+
+	// validate 플래그
+	forecastValidateCmd.Flags().StringVar(&validateFrom, "from", "", "시작 날짜 (YYYY-MM-DD)")
+	forecastValidateCmd.Flags().StringVar(&validateTo, "to", "", "종료 날짜 (YYYY-MM-DD)")
+	forecastValidateCmd.Flags().StringVar(&validateModel, "model", "v1.0.0", "모델 버전")
+	forecastValidateCmd.Flags().StringVar(&validateLevel, "level", "ALL", "집계 레벨 (ALL, EVENT_TYPE, CODE)")
+	forecastValidateCmd.Flags().StringVar(&validateOutput, "output", "text", "출력 형식 (text, json)")
 }
 
 func runForecastDetect(cmd *cobra.Command, args []string) error {
@@ -470,4 +512,130 @@ func initForecastDeps() (*config.Config, zerolog.Logger, *database.DB, error) {
 	}
 
 	return cfg, log.Zerolog(), db, nil
+}
+
+func runForecastValidate(cmd *cobra.Command, args []string) error {
+	fmt.Println("=== Forecast: Validation (S7) ===")
+
+	ctx := cmd.Context()
+
+	// 날짜 파싱
+	var from, to time.Time
+	var err error
+	if validateFrom != "" {
+		from, err = time.Parse("2006-01-02", validateFrom)
+		if err != nil {
+			return fmt.Errorf("invalid from date: %w", err)
+		}
+	}
+	if validateTo != "" {
+		to, err = time.Parse("2006-01-02", validateTo)
+		if err != nil {
+			return fmt.Errorf("invalid to date: %w", err)
+		}
+	}
+
+	// 의존성 초기화
+	cfg, log, db, err := initForecastDeps()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_ = cfg
+
+	// 저장소
+	forecastRepo := forecast.NewRepository(db.Pool)
+
+	// 예측기
+	predictor := forecast.NewPredictor(forecastRepo, log)
+
+	// 검증기
+	validator := forecast.NewValidator(forecastRepo, predictor, validateModel, log)
+
+	// 검증 실행
+	var results []risk.ValidationResult
+	if !from.IsZero() && !to.IsZero() {
+		fmt.Printf("📅 Period: %s ~ %s\n", from.Format("2006-01-02"), to.Format("2006-01-02"))
+		results, err = validator.ValidateByDateRange(ctx, from, to)
+	} else {
+		fmt.Println("📅 Period: All events with forward performance")
+		results, err = validator.ValidateAll(ctx)
+	}
+	if err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	if len(results) == 0 {
+		fmt.Println("⚠️ No validation results")
+		return nil
+	}
+
+	fmt.Printf("📊 Validated: %d events\n\n", len(results))
+
+	// 정확도 계산
+	if validateLevel == "ALL" {
+		accuracy := validator.CalculateAccuracy(ctx, results)
+		if accuracy != nil {
+			printAccuracyReport(accuracy, validateOutput)
+		}
+	} else {
+		reports := validator.CalculateAccuracyByLevel(ctx, results, validateLevel)
+		for key, report := range reports {
+			fmt.Printf("\n=== %s: %s ===\n", validateLevel, key)
+			printAccuracyReport(report, validateOutput)
+		}
+	}
+
+	// 캘리브레이션 (text 모드에서만)
+	if validateOutput == "text" {
+		bins := validator.CalculateCalibrationBins(ctx, results, 10)
+		if len(bins) > 0 {
+			fmt.Println("\n=== Calibration ===")
+			fmt.Println("Bin | Samples | Avg Pred | Avg Actual | Hit Rate")
+			fmt.Println("----|---------|----------|------------|----------")
+			for _, bin := range bins {
+				fmt.Printf(" %2d | %7d | %+7.4f | %+9.4f | %6.2f%%\n",
+					bin.Bin, bin.SampleCount, bin.AvgPredicted, bin.AvgActual, bin.HitRate*100)
+			}
+		}
+	}
+
+	fmt.Printf("\n✅ Validation completed (model: %s)\n", validateModel)
+	return nil
+}
+
+func printAccuracyReport(report *risk.AccuracyReport, output string) {
+	if output == "json" {
+		jsonData, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(jsonData))
+		return
+	}
+
+	fmt.Println("=== Accuracy Report ===")
+	fmt.Printf("Model Version: %s\n", report.ModelVersion)
+	fmt.Printf("Level: %s\n", report.Level)
+	fmt.Printf("Key: %s\n", report.Key)
+	fmt.Printf("Sample Count: %d\n", report.SampleCount)
+	fmt.Printf("MAE: %.4f (%.2f%%)\n", report.MAE, report.MAE*100)
+	fmt.Printf("RMSE: %.4f (%.2f%%)\n", report.RMSE, report.RMSE*100)
+	fmt.Printf("Hit Rate: %.2f%%\n", report.HitRate*100)
+	fmt.Printf("Mean Error (Bias): %+.4f\n", report.MeanError)
+
+	// 해석
+	fmt.Println("\n📊 Interpretation:")
+	if report.HitRate >= 0.6 {
+		fmt.Println("  ✅ Direction prediction is good (>60%)")
+	} else if report.HitRate >= 0.5 {
+		fmt.Println("  ⚠️ Direction prediction is marginal (50-60%)")
+	} else {
+		fmt.Println("  ❌ Direction prediction is poor (<50%)")
+	}
+
+	if math.Abs(report.MeanError) < 0.001 {
+		fmt.Println("  ✅ Prediction is well-calibrated (low bias)")
+	} else if report.MeanError > 0 {
+		fmt.Println("  ⚠️ Prediction tends to underestimate")
+	} else {
+		fmt.Println("  ⚠️ Prediction tends to overestimate")
+	}
 }
