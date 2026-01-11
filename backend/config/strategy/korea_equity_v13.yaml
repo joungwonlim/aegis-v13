@@ -166,27 +166,55 @@ execution:
       - { adtv20_min_krw: 0,             slippage_pct: 0.0070 }
 
 # =============================================================================
-# Exit (청산 전략)
+# Exit (청산 전략) - ATR 기반 동적 청산 v1.2.0
+# SSOT: docs-site/docs/guide/strategy/exit-rules.md
 # =============================================================================
 exit:
   mode: "ATR"
+  use_atr_based: true
 
-  fixed:
-    stop_loss_pct: -0.07
-    trail_activate_pct: 0.06
-    trail_drawdown_pct: -0.05
-    time_stop_days: 10
-    partial_take_profit:
-      enable: true
-      trigger_ret_pct: 0.18
-      sell_fraction_pct: 0.50
+  # ===== 3단계 분할 익절 =====
+  take_profit:
+    # TP1: ATR × 1.5, clamp [6%, 8%], 25% 매도
+    tp1:
+      atr_multiplier: 1.5
+      min_percent: 6.0
+      max_percent: 8.0
+      sell_percent: 25.0
 
-  atr:
-    window_days: 20
-    stop_mult: 2.0
-    trail_mult: 1.5
-    min_stop_pct: 0.07
-    min_trail_pct: 0.05
+    # TP2: ATR × 2.5, clamp [10%, 12%], 25% 매도
+    tp2:
+      atr_multiplier: 2.5
+      min_percent: 10.0
+      max_percent: 12.0
+      sell_percent: 25.0
+
+    # TP3: ATR × 3.5, clamp [15%, 18%], 20% 매도
+    tp3:
+      atr_multiplier: 3.5
+      min_percent: 15.0
+      max_percent: 18.0
+      sell_percent: 20.0
+
+  # ===== 2단계 손절 =====
+  stop_loss:
+    first_stop_percent: -3.0      # 1차 손절 트리거
+    first_stop_sell_percent: 50.0 # 1차 손절 시 50% 매도
+    second_stop_percent: -5.0     # 2차 손절 (전량)
+    hard_stop_percent: -7.0       # 하드 스탑 (어떤 상황에서도 발동)
+
+  # ===== 보호 메커니즘 =====
+  protection:
+    # Stop Floor: TP1 이후 손익분기점 + buffer
+    stop_floor_buffer: 0.6        # 손익분기점 + 0.6%
+
+    # HWM Trailing: TP3 이후 최고가 추적
+    trail_atr_multiplier: 2.0     # 트레일 ATR 배수
+    trail_min_percent: 3.0        # 최소 트레일 거리
+    trail_max_percent: 5.0        # 최대 트레일 거리
+
+  # ===== 모니터링 =====
+  check_interval_seconds: 30
 
 # =============================================================================
 # Risk Overlay (리스크 조정)
