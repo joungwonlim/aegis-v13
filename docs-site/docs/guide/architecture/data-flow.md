@@ -293,13 +293,13 @@ type TargetPortfolio struct {
 }
 
 type TargetPosition struct {
-    Code       string  `json:"code"`
-    Name       string  `json:"name"`
-    Weight     float64 `json:"weight"`      // 목표 비중
-    TargetQty  int     `json:"target_qty"`  // 목표 수량
-    CurrentQty int     `json:"current_qty"` // 현재 수량
-    Action     string  `json:"action"`      // BUY, SELL, HOLD
-    Reason     string  `json:"reason"`      // 편입/편출 사유
+    Code        string  `json:"code"`
+    Name        string  `json:"name"`
+    Weight      float64 `json:"weight"`       // 목표 비중
+    TargetValue int64   `json:"target_value"` // ⭐ 목표 금액 (수량은 S6에서 계산)
+    CurrentQty  int     `json:"current_qty"`  // 현재 수량
+    Action      string  `json:"action"`       // BUY, SELL, HOLD
+    Reason      string  `json:"reason"`       // 편입/편출 사유
 }
 
 type PortfolioSummary struct {

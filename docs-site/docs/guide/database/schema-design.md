@@ -405,7 +405,8 @@ CREATE INDEX idx_ranking_results_score ON selection.ranking_results(total_score 
 ```sql
 CREATE TABLE portfolio.target_portfolios (
     portfolio_date DATE PRIMARY KEY,
-    positions      JSONB NOT NULL,          -- [{code, name, weight, target_qty, action, reason}, ...]
+    -- ⭐ P0 수정: target_qty → target_value (목표 금액, 수량은 S6에서 계산)
+    positions      JSONB NOT NULL,          -- [{code, name, weight, target_value, action, reason}, ...]
     cash_weight    NUMERIC(5,4) DEFAULT 0.0,
     total_weight   NUMERIC(5,4),
     position_count INT,

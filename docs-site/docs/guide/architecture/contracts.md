@@ -162,12 +162,12 @@ type TargetPortfolio struct {
 }
 
 type TargetPosition struct {
-    Code      string  `json:"code"`
-    Name      string  `json:"name"`
-    Weight    float64 `json:"weight"`
-    TargetQty int     `json:"target_qty"`
-    Action    Action  `json:"action"`
-    Reason    string  `json:"reason"`
+    Code        string  `json:"code"`
+    Name        string  `json:"name"`
+    Weight      float64 `json:"weight"`
+    TargetValue int64   `json:"target_value"` // ⭐ 목표 금액 (수량은 S6에서 계산)
+    Action      Action  `json:"action"`
+    Reason      string  `json:"reason"`
 }
 
 type Action string
@@ -215,7 +215,8 @@ type Ranker interface {
 
 // S5: 포트폴리오 구성
 type PortfolioConstructor interface {
-    Construct(ctx context.Context, ranked []RankedStock) (*TargetPortfolio, error)
+    // ⭐ totalValue: 목표 자산 금액 (원화)
+    Construct(ctx context.Context, ranked []RankedStock, totalValue int64) (*TargetPortfolio, error)
 }
 
 // S6: 주문 실행

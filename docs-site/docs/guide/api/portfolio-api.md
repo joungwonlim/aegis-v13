@@ -29,7 +29,7 @@ description: S5 포트폴리오 구성 API
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/portfolio/target?date=2024-01-15"
+     "http://localhost:8089/api/v1/portfolio/target?date=2024-01-15"
 ```
 
 ### Query Parameters
@@ -53,7 +53,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
         "code": "005930",
         "name": "삼성전자",
         "weight": 0.08,
-        "target_qty": 15,
+        "target_value": 15,
         "action": "BUY",
         "reason": "Rank 1, Strong flow signal (0.92)"
       },
@@ -61,7 +61,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
         "code": "000660",
         "name": "SK하이닉스",
         "weight": 0.075,
-        "target_qty": 8,
+        "target_value": 8,
         "action": "BUY",
         "reason": "Rank 2, High momentum (0.78)"
       },
@@ -87,7 +87,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/portfolio/holdings?date=2024-01-15"
+     "http://localhost:8089/api/v1/portfolio/holdings?date=2024-01-15"
 ```
 
 ### Response
@@ -129,7 +129,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/portfolio/diff?date=2024-01-15"
+     "http://localhost:8089/api/v1/portfolio/diff?date=2024-01-15"
 ```
 
 ### Response
@@ -146,7 +146,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
         "name": "삼성전자",
         "action": "BUY",
         "current_qty": 138,
-        "target_qty": 150,
+        "target_value": 150,
         "diff_qty": 12,
         "diff_value": 878400,
         "reason": "Increase weight 10.1% → 15%"
@@ -156,7 +156,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
         "name": "카카오",
         "action": "SELL",
         "current_qty": 85,
-        "target_qty": 0,
+        "target_value": 0,
         "diff_qty": -85,
         "diff_value": -4250000,
         "reason": "Exit: Dropped from top 20"
@@ -166,7 +166,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
         "name": "SK하이닉스",
         "action": "HOLD",
         "current_qty": 80,
-        "target_qty": 80,
+        "target_value": 80,
         "diff_qty": 0,
         "diff_value": 0,
         "reason": "Maintain position"
@@ -209,7 +209,7 @@ curl -X POST \
          "blacklist": ["000000", "111111"]
        }
      }' \
-     http://localhost:8080/api/v1/portfolio/construct
+     http://localhost:8089/api/v1/portfolio/construct
 ```
 
 ### Request Body
@@ -342,7 +342,7 @@ IF sector_total > max_sector_weight:
 import requests
 
 API_KEY = "YOUR_KEY"
-BASE_URL = "http://localhost:8080/api/v1"
+BASE_URL = "http://localhost:8089/api/v1"
 headers = {"Authorization": f"Bearer {API_KEY}"}
 
 # 1. 포트폴리오 구성
