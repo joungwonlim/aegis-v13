@@ -591,7 +591,7 @@ func (h *PipelineHandler) GetPortfolio(w http.ResponseWriter, r *http.Request) {
 		)
 		SELECT
 			p.stock_code,
-			COALESCE(p.stock_name, s.name) as stock_name,
+			COALESCE(NULLIF(p.stock_name, ''), s.name) as stock_name,
 			s.market,
 			p.weight::float8,
 			p.target_qty,
