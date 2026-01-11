@@ -456,16 +456,7 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 
 	// S4 Ranking: S3 Screener 통과 종목만 포함 (PER/PBR/ROE 조건)
 	query := `
-		WITH latest_prices AS (
-			SELECT DISTINCT ON (stock_code)
-				stock_code,
-				close_price::float8 as close_price,
-				LAG(close_price) OVER (PARTITION BY stock_code ORDER BY trade_date) as prev_close
-			FROM data.daily_prices
-			WHERE trade_date <= $1
-			ORDER BY stock_code, trade_date DESC
-		),
-		latest_fundamentals AS (
+		WITH latest_fundamentals AS (
 			SELECT DISTINCT ON (stock_code)
 				stock_code, per, pbr, roe
 			FROM data.fundamentals
@@ -483,14 +474,10 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 			COALESCE(r.quality, 0)::float8,
 			COALESCE(r.flow, 0)::float8,
 			COALESCE(r.event, 0)::float8,
-			COALESCE(lp.close_price, 0) as current_price,
-			CASE
-				WHEN lp.prev_close > 0 THEN ((lp.close_price - lp.prev_close) / lp.prev_close * 100)::float8
-				ELSE 0::float8
-			END as change_rate
+			0::float8 as current_price,
+			0::float8 as change_rate
 		FROM selection.ranking_results r
 		JOIN data.stocks s ON r.stock_code = s.code
-		LEFT JOIN latest_prices lp ON r.stock_code = lp.stock_code
 		JOIN latest_fundamentals lf ON r.stock_code = lf.stock_code
 		WHERE r.rank_date = $1
 		  ` + marketFilter + `
