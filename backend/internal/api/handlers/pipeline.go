@@ -292,12 +292,13 @@ func (h *PipelineHandler) GetSignals(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetScreened returns stocks that passed hard cut filtering (S2 Screener)
+// GetScreened returns stocks that passed hard cut filtering (S3 Screener)
 // GET /api/v1/pipeline/screened?market=KOSPI|KOSDAQ|ALL
-// Hard Cut 조건 (재무 지표만):
-//   - PER > 0 AND <= 50 (고평가/적자 제외)
-//   - PBR >= 0.2 (자산가치 필터)
-//   - ROE >= 5 (수익성 필터)
+// Hard Cut 조건:
+//   1. 재무 지표: PER(0~50), PBR(>=0.2), ROE(>=5)
+//   2. 급락 제외: 1일수익률 >= -9%, 5일수익률 >= -18%
+//   3. 과열 제외: 5일수익률 <= 35%
+//   4. 변동성 제외: 20일 변동성 상위 10% 제외
 func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	market := r.URL.Query().Get("market")
@@ -321,9 +322,8 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 		args = append(args, market)
 	}
 
-	// Join with fundamentals for PER/PBR/ROE
-	// Use latest fundamentals data for each stock
-	// Hard Cut: 재무 지표만 사용 (팩터 조건 없음)
+	// S3 Screener: Hard Cut 조건
+	// SSOT: config/strategy/korea_equity_v13.yaml screening 섹션
 	query := `
 		WITH latest_fundamentals AS (
 			SELECT DISTINCT ON (stock_code)
@@ -333,6 +333,61 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 				roe
 			FROM data.fundamentals
 			ORDER BY stock_code, report_date DESC
+		),
+		-- 최근 6거래일 종가 (1일/5일 수익률 계산용)
+		recent_prices AS (
+			SELECT
+				stock_code,
+				trade_date,
+				close_price,
+				ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY trade_date DESC) as rn
+			FROM data.daily_prices
+			WHERE trade_date <= $1
+		),
+		-- 1일/5일 수익률 계산
+		price_returns AS (
+			SELECT
+				p0.stock_code,
+				-- 1일 수익률: (오늘 - 어제) / 어제
+				CASE WHEN p1.close_price > 0
+					THEN (p0.close_price - p1.close_price)::float8 / p1.close_price::float8
+					ELSE 0
+				END as day1_return,
+				-- 5일 수익률: (오늘 - 5일전) / 5일전
+				CASE WHEN p5.close_price > 0
+					THEN (p0.close_price - p5.close_price)::float8 / p5.close_price::float8
+					ELSE 0
+				END as day5_return
+			FROM recent_prices p0
+			LEFT JOIN recent_prices p1 ON p0.stock_code = p1.stock_code AND p1.rn = 2
+			LEFT JOIN recent_prices p5 ON p0.stock_code = p5.stock_code AND p5.rn = 6
+			WHERE p0.rn = 1
+		),
+		-- 20일 변동성 계산 (일간수익률의 표준편차)
+		volatility_data AS (
+			SELECT
+				stock_code,
+				STDDEV(daily_return) as vol20
+			FROM (
+				SELECT
+					stock_code,
+					(close_price - LAG(close_price) OVER (PARTITION BY stock_code ORDER BY trade_date))::float8
+					/ NULLIF(LAG(close_price) OVER (PARTITION BY stock_code ORDER BY trade_date), 0)::float8 as daily_return
+				FROM data.daily_prices
+				WHERE trade_date <= $1
+				  AND trade_date >= $1 - INTERVAL '30 days'
+			) sub
+			WHERE daily_return IS NOT NULL
+			GROUP BY stock_code
+			HAVING COUNT(*) >= 15
+		),
+		-- 변동성 순위 (상위 10% = 0.9 이상)
+		volatility_rank AS (
+			SELECT
+				stock_code,
+				vol20,
+				PERCENT_RANK() OVER (ORDER BY vol20) as vol_pct_rank
+			FROM volatility_data
 		)
 		SELECT
 			f.stock_code,
@@ -346,19 +401,31 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 			f.flow::float8,
 			f.event::float8,
 			COALESCE(f.total_score, 0)::float8 as total_score,
-			lf.per::float8,
-			lf.pbr::float8,
-			lf.roe::float8
+			COALESCE(lf.per, 0)::float8 as per,
+			COALESCE(lf.pbr, 0)::float8 as pbr,
+			COALESCE(lf.roe, 0)::float8 as roe,
+			COALESCE(pr.day1_return, 0)::float8 as day1_return,
+			COALESCE(pr.day5_return, 0)::float8 as day5_return,
+			COALESCE(vr.vol20, 0)::float8 as vol20
 		FROM signals.factor_scores f
 		JOIN data.stocks s ON f.stock_code = s.code
 		LEFT JOIN latest_fundamentals lf ON f.stock_code = lf.stock_code
+		LEFT JOIN price_returns pr ON f.stock_code = pr.stock_code
+		LEFT JOIN volatility_rank vr ON f.stock_code = vr.stock_code
 		WHERE f.calc_date = $1
 		  ` + marketFilter + `
 		  AND s.status = 'active'
-		  -- Hard Cut: 재무 지표만 (PER/PBR/ROE)
+		  -- 1. 재무 Hard Cut: PER/PBR/ROE
 		  AND lf.per > 0 AND lf.per <= 50
 		  AND lf.pbr >= 0.2
 		  AND lf.roe >= 5
+		  -- 2. 급락 제외: 1일 >= -9%, 5일 >= -18%
+		  AND COALESCE(pr.day1_return, 0) >= -0.09
+		  AND COALESCE(pr.day5_return, 0) >= -0.18
+		  -- 3. 과열 제외: 5일 <= 35%
+		  AND COALESCE(pr.day5_return, 0) <= 0.35
+		  -- 4. 변동성 제외: 상위 10% 제외 (vol_pct_rank < 0.9)
+		  AND (vr.vol_pct_rank IS NULL OR vr.vol_pct_rank < 0.9)
 		ORDER BY f.total_score DESC NULLS LAST
 	`
 
@@ -374,6 +441,7 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item ScreenedItem
 		var calcDate time.Time
+		var day1Return, day5Return, vol20 float64
 		err := rows.Scan(
 			&item.StockCode,
 			&item.StockName,
@@ -389,6 +457,9 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 			&item.PER,
 			&item.PBR,
 			&item.ROE,
+			&day1Return,
+			&day5Return,
+			&vol20,
 		)
 		if err != nil {
 			h.logger.WithError(err).Error("Failed to scan screened item")
@@ -420,10 +491,22 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 			"totalBefore": totalBeforeScreening,
 			"filteredOut": totalBeforeScreening - len(items),
 			"passRate":    float64(len(items)) / float64(totalBeforeScreening) * 100,
-			"hardCutConditions": map[string]string{
-				"per": "> 0 AND <= 50 (고평가/적자 제외)",
-				"pbr": ">= 0.2 (자산가치 필터)",
-				"roe": ">= 5 (수익성 필터)",
+			"hardCutConditions": map[string]interface{}{
+				"fundamentals": map[string]string{
+					"per": "> 0 AND <= 50 (고평가/적자 제외)",
+					"pbr": ">= 0.2 (자산가치 필터)",
+					"roe": ">= 5% (수익성 필터)",
+				},
+				"drawdown": map[string]string{
+					"day1_return": ">= -9% (1일 급락 제외)",
+					"day5_return": ">= -18% (5일 급락 제외)",
+				},
+				"overheat": map[string]string{
+					"day5_return": "<= 35% (과열 종목 제외)",
+				},
+				"volatility": map[string]string{
+					"vol20": "상위 10% 제외",
+				},
 			},
 			"items": items,
 		},

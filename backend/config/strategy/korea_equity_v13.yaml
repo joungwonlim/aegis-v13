@@ -78,21 +78,27 @@ signals:
 # S3: Screening (Hard Cut)
 # =============================================================================
 screening:
-  drawdown:
-    day1_return_min: -0.09
-    day5_return_min: -0.18
+  # 1. 재무 Hard Cut
+  fundamentals:
+    per_min: 0              # PER > 0 (적자 제외)
+    per_max: 50             # PER <= 50 (고평가 제외)
+    pbr_min: 0.2            # PBR >= 0.2 (자산가치 필터)
+    roe_min: 5              # ROE >= 5% (수익성 필터)
 
+  # 2. 급락 제외
+  drawdown:
+    day1_return_min: -0.09  # 1일 수익률 >= -9%
+    day5_return_min: -0.18  # 5일 수익률 >= -18%
+
+  # 3. 과열 제외
   overheat:
     enable: true
-    day5_return_max: 0.35
+    day5_return_max: 0.35   # 5일 수익률 <= 35%
 
-  fundamentals:
-    net_income_ttm_min: 0
-    per_max: 60
-
+  # 4. 변동성 제외
   volatility:
     enable: true
-    vol20_exclude_top_pct: 0.10
+    vol20_exclude_top_pct: 0.10  # 상위 10% 제외
 
 # =============================================================================
 # S4: Ranking (가중치)
