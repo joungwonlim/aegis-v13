@@ -292,12 +292,12 @@ screener:
 
 ranker:
   weights:
-    momentum: 0.25
+    momentum: 0.25   # 모멘텀 ⭐
+    flow: 0.20       # 수급
     technical: 0.15
+    event: 0.15
     value: 0.15
     quality: 0.10
-    flow: 0.20       # 수급 ⭐
-    event: 0.15
 
   # Top N 선택
   top_n: 30

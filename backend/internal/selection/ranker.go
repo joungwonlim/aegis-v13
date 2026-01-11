@@ -16,13 +16,14 @@ type Ranker struct {
 }
 
 // WeightConfig defines signal weights for total score calculation
+// SSOT: config/strategy/korea_equity_v13.yaml ranking.weights_pct
 type WeightConfig struct {
-	Momentum  float64 // 모멘텀 (기본: 0.25)
-	Technical float64 // 기술적 (기본: 0.15)
-	Value     float64 // 가치 (기본: 0.20)
-	Quality   float64 // 퀄리티 (기본: 0.15)
-	Flow      float64 // 수급 (기본: 0.25) ⭐
-	Event     float64 // 이벤트 (기본: 0.00)
+	Momentum  float64 // 모멘텀 (기본: 25%)
+	Flow      float64 // 수급 (기본: 20%)
+	Technical float64 // 기술적 (기본: 15%)
+	Event     float64 // 이벤트 (기본: 15%)
+	Value     float64 // 가치 (기본: 15%)
+	Quality   float64 // 퀄리티 (기본: 10%)
 }
 
 // NewRanker creates a new ranker
@@ -73,11 +74,18 @@ func (r *Ranker) Rank(ctx context.Context, codes []string, signals *contracts.Si
 		ranked[i].Rank = i + 1
 	}
 
-	r.logger.WithFields(map[string]interface{}{
-		"total_stocks": len(ranked),
-		"top_score":    ranked[0].TotalScore,
-		"top_code":     ranked[0].Code,
-	}).Info("Ranking completed")
+	// Log result (handle empty case)
+	if len(ranked) > 0 {
+		r.logger.WithFields(map[string]interface{}{
+			"total_stocks": len(ranked),
+			"top_score":    ranked[0].TotalScore,
+			"top_code":     ranked[0].Code,
+		}).Info("Ranking completed")
+	} else {
+		r.logger.WithFields(map[string]interface{}{
+			"total_stocks": 0,
+		}).Warn("Ranking completed with no stocks")
+	}
 
 	return ranked, nil
 }
@@ -100,15 +108,15 @@ func (w *WeightConfig) ValidateWeights() bool {
 }
 
 // DefaultWeightConfig returns default weight configuration
-// Based on Korean market characteristics
+// SSOT: config/strategy/korea_equity_v13.yaml ranking.weights_pct
 func DefaultWeightConfig() WeightConfig {
 	return WeightConfig{
-		Momentum:  0.20, // 20% - 모멘텀
-		Technical: 0.20, // 20% - 기술적
+		Momentum:  0.25, // 25% - 모멘텀 ⭐
+		Flow:      0.20, // 20% - 수급
+		Technical: 0.15, // 15% - 기술적
+		Event:     0.15, // 15% - 이벤트
 		Value:     0.15, // 15% - 가치
-		Quality:   0.15, // 15% - 퀄리티
-		Flow:      0.25, // 25% - 수급 (한국 시장에서 중요) ⭐
-		Event:     0.05, // 5%  - 이벤트
+		Quality:   0.10, // 10% - 퀄리티
 	}
 	// Total: 100%
 }
