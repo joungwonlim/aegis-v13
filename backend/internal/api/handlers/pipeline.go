@@ -291,14 +291,12 @@ func (h *PipelineHandler) GetSignals(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetScreened returns stocks that passed hard cut filtering (S3)
+// GetScreened returns stocks that passed hard cut filtering (S2 Screener)
 // GET /api/v1/pipeline/screened?market=KOSPI|KOSDAQ|ALL
-// Hard Cut 조건:
-//   - momentum >= 0 (상승 모멘텀)
-//   - technical >= -0.5 (과매도 제외)
-//   - flow >= -0.3 (수급 악화 제외)
-//   - PER <= 50 AND PER > 0 (고평가 제외)
+// Hard Cut 조건 (재무 지표만):
+//   - PER > 0 AND <= 50 (고평가/적자 제외)
 //   - PBR >= 0.2 (자산가치 필터)
+//   - ROE >= 5 (수익성 필터)
 func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	market := r.URL.Query().Get("market")
@@ -324,6 +322,7 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 
 	// Join with fundamentals for PER/PBR/ROE
 	// Use latest fundamentals data for each stock
+	// Hard Cut: 재무 지표만 사용 (팩터 조건 없음)
 	query := `
 		WITH latest_fundamentals AS (
 			SELECT DISTINCT ON (stock_code)
@@ -355,13 +354,10 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 		WHERE f.calc_date = $1
 		  ` + marketFilter + `
 		  AND s.status = 'active'
-		  -- Factor Hard Cut
-		  AND f.momentum >= 0
-		  AND f.technical >= -0.5
-		  AND f.flow >= -0.3
-		  -- Fundamental Hard Cut
-		  AND (lf.per IS NULL OR (lf.per > 0 AND lf.per <= 50))
-		  AND (lf.pbr IS NULL OR lf.pbr >= 0.2)
+		  -- Hard Cut: 재무 지표만 (PER/PBR/ROE)
+		  AND lf.per > 0 AND lf.per <= 50
+		  AND lf.pbr >= 0.2
+		  AND lf.roe >= 5
 		ORDER BY f.total_score DESC NULLS LAST
 	`
 
@@ -424,11 +420,9 @@ func (h *PipelineHandler) GetScreened(w http.ResponseWriter, r *http.Request) {
 			"filteredOut": totalBeforeScreening - len(items),
 			"passRate":    float64(len(items)) / float64(totalBeforeScreening) * 100,
 			"hardCutConditions": map[string]string{
-				"momentum":  ">= 0 (상승 모멘텀)",
-				"technical": ">= -0.5 (과매도 제외)",
-				"flow":      ">= -0.3 (수급 악화 제외)",
-				"per":       "> 0 AND <= 50 (고평가 제외)",
-				"pbr":       ">= 0.2 (자산가치 필터)",
+				"per": "> 0 AND <= 50 (고평가/적자 제외)",
+				"pbr": ">= 0.2 (자산가치 필터)",
+				"roe": ">= 5 (수익성 필터)",
 			},
 			"items": items,
 		},

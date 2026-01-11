@@ -1,12 +1,32 @@
 ---
 sidebar_position: 4
 title: Selection Layer
-description: S3-S4 스크리닝/랭킹
+description: S2-S3 스크리닝/랭킹
 ---
 
 # Selection Layer
 
-> S3: Screener + S4: Ranker
+> S2: Screener + S3: Ranker
+
+---
+
+## 파이프라인 구조 (S0~S4)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Aegis v13 Pipeline                                │
+└─────────────────────────────────────────────────────────────────────────┘
+
+S0: Naver Ranking    → 실시간 종목 데이터 수집
+        ↓
+S1: Signals          → 6개 팩터 계산 (Momentum, Technical, Value, Quality, Flow, Event)
+        ↓
+S2: Screener         → Hard Cut 필터링 (PER/PBR/ROE 재무 지표)
+        ↓
+S3: Ranking          → 종합 점수 산출 + 순위 부여
+        ↓
+S4: Portfolio        → 포트폴리오 구성
+```
 
 ---
 
@@ -14,8 +34,8 @@ description: S3-S4 스크리닝/랭킹
 
 | Stage | 역할 | 목적 |
 |-------|------|------|
-| S3 | Hard Cut 필터링 | AI 비용 절감 (90% 제거) |
-| S4 | 종합 점수 산출 | Top N 선별 |
+| S2 | Hard Cut 필터링 (재무) | 부실 종목 제거 |
+| S3 | 종합 점수 산출 | Top N 선별 |
 
 ---
 
@@ -43,21 +63,21 @@ description: S3-S4 스크리닝/랭킹
         ┌───────────────────────────┴───────────────────────────┐
         ▼                                                       ▼
 ┌───────────────────────────────────┐       ┌───────────────────────────────────┐
-│         S3: Screener              │       │           S4: Ranker              │
+│         S2: Screener              │       │           S3: Ranker              │
 │       (Hard Cut 필터)              │──────▶│        (가중치 랭킹)              │
 ├───────────────────────────────────┤       ├───────────────────────────────────┤
-│ 입력: SignalSet (전체 종목)        │       │ 입력: 필터 통과 종목 + SignalSet   │
+│ 입력: S1 Signal 통과 종목         │       │ 입력: S2 필터 통과 종목           │
 │                                   │       │                                   │
-│ Hard Cut 조건:                    │       │ 가중치 (YAML SSOT):               │
+│ Hard Cut 조건 (재무 지표만):       │       │ 가중치 (YAML SSOT):               │
 │                                   │       │ • Momentum: 25%                   │
-│ [팩터 조건]                        │       │ • Flow: 20%                       │
-│ • momentum >= 0 (상승 모멘텀)     │       │ • Technical: 15%                  │
-│ • technical >= -0.5 (과매도 제외)  │       │ • Event: 15%                      │
-│ • flow >= -0.3 (수급 악화 제외)    │       │ • Value: 15%                      │
-│                                   │       │ • Quality: 10%                    │
-│ [재무 조건]                        │       │                                   │
-│ • PER > 0 AND <= 50 (고평가 제외) │       │ 출력: RankedStock[] (점수순)       │
-│ • PBR >= 0.2 (자산가치 필터)       │       │                                   │
+│ • PER > 0 AND <= 50              │       │ • Flow: 20%                       │
+│   (적자/고평가 제외)              │       │ • Technical: 15%                  │
+│                                   │       │ • Event: 15%                      │
+│ • PBR >= 0.2                     │       │ • Value: 15%                      │
+│   (자산가치 필터)                 │       │ • Quality: 10%                    │
+│                                   │       │                                   │
+│ • ROE >= 5                       │       │ 출력: RankedStock[] (점수순)       │
+│   (수익성 필터)                   │       │                                   │
 │                                   │       │                                   │
 │ 출력: 통과 종목 리스트             │       │                                   │
 └───────────────────────────────────┘       └───────────────────────────────────┘
@@ -76,16 +96,29 @@ internal/selection/
 
 ---
 
-## S3: Screener
+## S2: Screener
 
 ### 목적
 
-**AI 분석 전 빠른 필터링**으로 비용 절감
+**재무 지표 기반 Hard Cut**으로 부실 종목 제거
 
 ```
-1000개 종목 → Screener → 100개 → AI 분석
-                (90% 제거)
+S1 통과 종목 (1,000개) → S2 Screener → 필터 통과 (300개)
+                         (PER/PBR/ROE)
 ```
+
+### Hard Cut 조건 (재무 지표만)
+
+| 지표 | 조건 | 목적 |
+|------|------|------|
+| **PER** | > 0 AND <= 50 | 적자/고평가 기업 제외 |
+| **PBR** | >= 0.2 | 자산가치 부실 기업 제외 |
+| **ROE** | >= 5 | 수익성 낮은 기업 제외 |
+
+:::info 팩터 조건 제외
+팩터 조건(momentum, technical, flow)은 S3 Ranker에서 가중치로 반영됩니다.
+S2 Screener는 **재무 건전성 필터링만** 담당합니다.
+:::
 
 ### 인터페이스
 
@@ -105,37 +138,26 @@ type screener struct {
 }
 
 type ScreenerConfig struct {
-    // Hard Cut 조건 (팩터 점수 기반)
-    MinMomentum  float64 `yaml:"min_momentum"`   // 0 이상 (상승 모멘텀)
-    MinTechnical float64 `yaml:"min_technical"`  // -0.5 이상 (과매도 제외)
-    MinFlow      float64 `yaml:"min_flow"`       // -0.3 이상 (수급 악화 제외)
+    // 재무 Hard Cut 조건
+    MaxPER float64 `yaml:"max_per"`  // 50 (고평가 제외)
+    MinPER float64 `yaml:"min_per"`  // 0 (적자 제외)
+    MinPBR float64 `yaml:"min_pbr"`  // 0.2 (자산가치 필터)
+    MinROE float64 `yaml:"min_roe"`  // 5 (수익성 필터)
 }
 
-func (s *screener) Screen(ctx context.Context, signals *contracts.SignalSet) ([]string, error) {
-    passed := make([]string, 0)
-
-    for code, signal := range signals.Signals {
-        if s.passAllConditions(signal) {
-            passed = append(passed, code)
-        }
-    }
-
-    return passed, nil
-}
-
-func (s *screener) passAllConditions(signal contracts.StockSignal) bool {
-    // 모멘텀 필터: 상승 추세만
-    if signal.Momentum < s.config.MinMomentum {
+func (s *screener) passAllConditions(fundamentals Fundamentals) bool {
+    // PER 필터: 적자/고평가 제외
+    if fundamentals.PER <= s.config.MinPER || fundamentals.PER > s.config.MaxPER {
         return false
     }
 
-    // 기술적 필터: 과매도 종목 제외
-    if signal.Technical < s.config.MinTechnical {
+    // PBR 필터: 자산가치 부실 제외
+    if fundamentals.PBR < s.config.MinPBR {
         return false
     }
 
-    // 수급 필터: 수급 악화 종목 제외
-    if signal.Flow < s.config.MinFlow {
+    // ROE 필터: 수익성 부족 제외
+    if fundamentals.ROE < s.config.MinROE {
         return false
     }
 
@@ -156,17 +178,20 @@ GET /api/v1/pipeline/screened?market={ALL|KOSPI|KOSDAQ}
   "data": {
     "date": "2026-01-11",
     "market": "ALL",
-    "count": 450,
+    "count": 320,
     "hardCutConditions": {
-      "momentum": ">= 0",
-      "technical": ">= -0.5",
-      "flow": ">= -0.3"
+      "per": "> 0 AND <= 50 (적자/고평가 제외)",
+      "pbr": ">= 0.2 (자산가치 필터)",
+      "roe": ">= 5 (수익성 필터)"
     },
     "items": [
       {
         "stockCode": "005930",
         "stockName": "삼성전자",
         "market": "KOSPI",
+        "per": 12.5,
+        "pbr": 1.2,
+        "roe": 8.5,
         "momentum": 0.25,
         "technical": 0.10,
         "flow": 0.15,
@@ -180,7 +205,7 @@ GET /api/v1/pipeline/screened?market={ALL|KOSPI|KOSDAQ}
 
 ---
 
-## S4: Ranker
+## S3: Ranker
 
 ### 인터페이스
 
@@ -202,10 +227,10 @@ type ranker struct {
 type WeightConfig struct {
     Momentum  float64 `yaml:"momentum"`   // 0.25
     Technical float64 `yaml:"technical"`  // 0.15
-    Value     float64 `yaml:"value"`      // 0.20
-    Quality   float64 `yaml:"quality"`    // 0.15
+    Value     float64 `yaml:"value"`      // 0.15
+    Quality   float64 `yaml:"quality"`    // 0.10
     Flow      float64 `yaml:"flow"`       // 0.20 ⭐ 수급
-    Event     float64 `yaml:"event"`      // 0.05
+    Event     float64 `yaml:"event"`      // 0.15
 }
 
 func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.SignalSet) ([]contracts.RankedStock, error) {
@@ -218,10 +243,10 @@ func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.Si
         totalScore :=
             signal.Momentum * r.weights.Momentum +      // 25%
             signal.Technical * r.weights.Technical +    // 15%
-            signal.Value * r.weights.Value +            // 20%
-            signal.Quality * r.weights.Quality +        // 15%
+            signal.Value * r.weights.Value +            // 15%
+            signal.Quality * r.weights.Quality +        // 10%
             signal.Flow * r.weights.Flow +              // 20% ⭐
-            signal.Event * r.weights.Event              // 5%
+            signal.Event * r.weights.Event              // 15%
 
         ranked = append(ranked, contracts.RankedStock{
             Code:       code,
@@ -259,24 +284,20 @@ func (r *ranker) Rank(ctx context.Context, codes []string, signals *contracts.Si
 # config/selection.yaml
 
 screener:
-  # 팩터 Hard Cut 조건
-  min_momentum: 0.0      # 상승 모멘텀만
-  min_technical: -0.5    # 과매도 제외
-  min_flow: -0.3         # 수급 악화 제외
-
-  # 재무 Hard Cut 조건
+  # 재무 Hard Cut 조건 (재무 지표만)
   max_per: 50            # PER <= 50 (고평가 제외)
   min_per: 0             # PER > 0 (적자기업 제외)
   min_pbr: 0.2           # PBR >= 0.2 (자산가치 필터)
+  min_roe: 5             # ROE >= 5 (수익성 필터)
 
 ranker:
   weights:
     momentum: 0.25
     technical: 0.15
-    value: 0.20
-    quality: 0.15
+    value: 0.15
+    quality: 0.10
     flow: 0.20       # 수급 ⭐
-    event: 0.05
+    event: 0.15
 
   # Top N 선택
   top_n: 30
@@ -288,21 +309,22 @@ ranker:
 
 ```
 ┌─────────────────────────────────────────────┐
-│ 전체 종목                          2,500개  │
+│ S0: Naver Ranking (실시간)          2,500개  │
 ├─────────────────────────────────────────────┤
-│ S1: Universe (거래정지/관리종목 제외)  2,000개  │
+│ S1: Signals (6개 팩터 계산)         2,000개  │
 ├─────────────────────────────────────────────┤
-│ S3: Screener                               │
-│   - 시총 필터                       1,500개  │
-│   - 거래대금 필터                   1,000개  │
-│   - 모멘텀 필터                      500개  │
-│   - 재무 필터                        200개  │
+│ S2: Screener (재무 Hard Cut)               │
+│   - PER > 0 AND <= 50               800개  │
+│   - PBR >= 0.2                      600개  │
+│   - ROE >= 5                        400개  │
 ├─────────────────────────────────────────────┤
-│ S4: Ranker (Top 30)                   30개  │
+│ S3: Ranker (Top 30)                   30개  │
+├─────────────────────────────────────────────┤
+│ S4: Portfolio                         30개  │
 └─────────────────────────────────────────────┘
 ```
 
-**AI 비용 절감**: 2,500개 → 30개 = **99% 감소**
+**종목 필터링**: 2,500개 → 30개 = **99% 감소**
 
 ---
 
