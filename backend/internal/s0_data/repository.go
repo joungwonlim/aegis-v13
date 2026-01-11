@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/wonny/aegis/v13/backend/internal/contracts"
@@ -31,6 +32,11 @@ type Repository struct {
 // NewRepository creates a new Repository instance
 func NewRepository(db *pgxpool.Pool) *Repository {
 	return &Repository{db: db}
+}
+
+// Pool returns the underlying database pool
+func (r *Repository) Pool() *pgxpool.Pool {
+	return r.db
 }
 
 // SaveQualitySnapshot saves a quality snapshot to the database
@@ -494,4 +500,29 @@ func (r *Repository) SaveMarketCapsFromKRX(ctx context.Context, items []krx.Mark
 	fmt.Printf("[SaveMarketCapsFromKRX] Completed: %d records saved\n", totalSaved)
 
 	return nil
+}
+
+// GetStockDescription 종목 상세 설명 조회
+func (r *Repository) GetStockDescription(ctx context.Context, code string) (string, error) {
+	query := `
+		SELECT description
+		FROM data.stock_details
+		WHERE code = $1
+	`
+
+	var description *string
+	err := r.db.QueryRow(ctx, query, code).Scan(&description)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			// 설명이 없는 경우 빈 문자열 반환
+			return "", nil
+		}
+		return "", fmt.Errorf("query stock description: %w", err)
+	}
+
+	if description == nil {
+		return "", nil
+	}
+
+	return *description, nil
 }

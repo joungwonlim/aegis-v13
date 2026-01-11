@@ -3,6 +3,7 @@ package s2_signals
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wonny/aegis/v13/backend/internal/contracts"
@@ -179,8 +180,9 @@ func (b *Builder) calculateStockSignals(ctx context.Context, code string, date t
 
 // fetchPriceData fetches historical price data for momentum and technical signals
 func (b *Builder) fetchPriceData(ctx context.Context, code string, date time.Time) ([]PricePoint, error) {
-	// Fetch last 120 days of price data
-	from := date.AddDate(0, 0, -150) // Extra buffer for weekends/holidays
+	// Fetch last 120+ days of price data
+	// Need 200 calendar days to get ~120 trading days (weekends/holidays)
+	from := date.AddDate(0, 0, -200)
 	to := date
 
 	prices, err := b.priceRepo.GetByCodeAndDateRange(ctx, code, from, to)
@@ -188,10 +190,12 @@ func (b *Builder) fetchPriceData(ctx context.Context, code string, date time.Tim
 		return nil, err
 	}
 
-	// Convert to PricePoint
-	pricePoints := make([]PricePoint, len(prices))
+	// Convert to PricePoint in reverse order (DESC: newest first)
+	// momentum.go and technical.go expect prices[0] to be the most recent
+	n := len(prices)
+	pricePoints := make([]PricePoint, n)
 	for i, p := range prices {
-		pricePoints[i] = PricePoint{
+		pricePoints[n-1-i] = PricePoint{
 			Date:   p.Date,
 			Price:  p.Close,
 			Volume: p.Volume,
@@ -238,8 +242,9 @@ func (b *Builder) fetchQualityMetrics(ctx context.Context, code string, date tim
 
 // fetchFlowData fetches investor flow data
 func (b *Builder) fetchFlowData(ctx context.Context, code string, date time.Time) ([]FlowData, error) {
-	// Fetch last 20 days of flow data
-	from := date.AddDate(0, 0, -30) // Extra buffer
+	// Fetch last 20+ days of flow data
+	// Need 40 calendar days to get ~20 trading days
+	from := date.AddDate(0, 0, -40)
 	to := date
 
 	flows, err := b.flowRepo.GetByCodeAndDateRange(ctx, code, from, to)
@@ -247,10 +252,12 @@ func (b *Builder) fetchFlowData(ctx context.Context, code string, date time.Time
 		return nil, err
 	}
 
-	// Convert to FlowData
-	flowData := make([]FlowData, len(flows))
+	// Convert to FlowData in reverse order (DESC: newest first)
+	// flow.go expects flowData[0] to be the most recent
+	n := len(flows)
+	flowData := make([]FlowData, n)
 	for i, f := range flows {
-		flowData[i] = FlowData{
+		flowData[n-1-i] = FlowData{
 			Date:          f.Date.Format("2006-01-02"),
 			ForeignNet:    f.ForeignNet,
 			InstNet:       f.InstitutionNet,
@@ -275,9 +282,18 @@ func (b *Builder) fetchEvents(ctx context.Context, code string, date time.Time) 
 	// Convert disclosures to event signals
 	events := make([]contracts.EventSignal, 0, len(disclosures))
 	for _, d := range disclosures {
-		// Map disclosure type to event type and impact
-		eventType := mapDisclosureToEventType(d.Type)
+		// Map disclosure title to event type and impact
+		// DB category field contains market type (KOSPI, KOSDAQ), so we parse title instead
+		eventType := mapDisclosureToEventType(d.Title)
 		impact := GetEventImpact(eventType)
+
+		// Debug: 공시 제목과 매핑된 이벤트 타입 로깅
+		b.logger.WithFields(map[string]interface{}{
+			"code":       code,
+			"title":      d.Title,
+			"event_type": string(eventType),
+			"impact":     impact,
+		}).Debug("Disclosure mapped to event")
 
 		event := contracts.EventSignal{
 			Type:      string(eventType),
@@ -292,21 +308,119 @@ func (b *Builder) fetchEvents(ctx context.Context, code string, date time.Time) 
 	return events, nil
 }
 
-// mapDisclosureToEventType maps DART disclosure types to event types
-func mapDisclosureToEventType(disclosureType string) EventType {
-	// Simplified mapping - actual implementation would be more sophisticated
-	switch disclosureType {
-	case "earnings":
-		return EventEarningsPositive // Would need to check if positive/negative
-	case "dividend":
-		return EventDividendIncrease
-	case "lawsuit":
-		return EventLawsuit
-	case "audit":
-		return EventAuditOpinion
-	case "merger":
-		return EventMergerPositive
-	default:
-		return EventAnnouncement
+// mapDisclosureToEventType maps DART disclosure title to event types
+// Parses Korean keywords from title to determine event type
+func mapDisclosureToEventType(title string) EventType {
+	// strings.Contains를 사용하기 위해 import 필요
+	// 공시 제목에서 키워드를 찾아 이벤트 유형 결정
+
+	// Positive events
+	// 자기주식/자사주 매입
+	if containsAny(title, "자기주식취득", "자사주매입", "자기주식매입", "자기주식신탁") {
+		return EventShareBuyback
 	}
+
+	// 전환사채 조기 상환/취득 (희석 위험 감소 → 긍정적)
+	if containsAny(title, "사채취득", "조기상환", "사채상환") {
+		return EventShareBuyback // 희석 위험 감소
+	}
+
+	// 대량보유 보고 (기관 관심 → 약간 긍정적)
+	if containsAny(title, "대량보유상황보고", "주식등의대량보유") {
+		return EventPartnership // 0.6 점
+	}
+
+	// 배당
+	if containsAny(title, "배당", "배당금") {
+		return EventDividendIncrease
+	}
+
+	// 신규사업/신제품
+	if containsAny(title, "신규사업", "신제품", "신규계약") {
+		return EventNewProduct
+	}
+
+	// 설비투자
+	if containsAny(title, "설비투자", "공장증설", "투자결정") {
+		return EventCapexIncrease
+	}
+
+	// 인수합병 (긍정적으로 가정)
+	if containsAny(title, "인수", "합병", "경영권") {
+		return EventMergerPositive
+	}
+
+	// 파트너십/MOU
+	if containsAny(title, "MOU", "양해각서", "업무협약", "파트너십", "제휴") {
+		return EventPartnership
+	}
+
+	// 특허
+	if containsAny(title, "특허", "기술이전") {
+		return EventPatent
+	}
+
+	// Negative events
+	// 소송
+	if containsAny(title, "소송", "소제기", "피소", "손해배상") {
+		return EventLawsuit
+	}
+
+	// 감사의견
+	if containsAny(title, "감사의견", "감사보고서", "한정의견", "부적정의견") {
+		return EventAuditOpinion
+	}
+
+	// 규제/행정처분
+	if containsAny(title, "행정처분", "과징금", "제재", "시정명령") {
+		return EventRegulatory
+	}
+
+	// 경영진 변경 (부정적: 사임, 해임)
+	if containsAny(title, "사임", "해임", "퇴임") {
+		return EventManagementChange
+	}
+
+	// 경영진 선임 (중립)
+	if containsAny(title, "대표이사", "임원", "선임", "이사회") {
+		return EventGeneralNews
+	}
+
+	// 리콜
+	if containsAny(title, "리콜", "자진회수") {
+		return EventRecall
+	}
+
+	// 실적 관련 (구체적인 내용을 알 수 없으므로 중립으로 처리)
+	if containsAny(title, "실적", "매출", "영업이익", "순이익", "사업보고서", "반기보고서", "분기보고서") {
+		return EventGeneralNews
+	}
+
+	// 증자 (희석 가능성 있으므로 중립)
+	if containsAny(title, "유상증자", "무상증자", "증자결정") {
+		return EventGeneralNews
+	}
+
+	// 전환사채 (희석 가능성 있으므로 중립)
+	if containsAny(title, "전환사채", "CB발행", "CB)", "신주인수권", "사채권발행") {
+		return EventGeneralNews
+	}
+
+	// 주주총회
+	if containsAny(title, "주주총회", "임시주총", "정기주총") {
+		return EventGeneralNews
+	}
+
+	// 기타 일반 공시
+	return EventAnnouncement
+}
+
+// containsAny checks if s contains any of the keywords
+func containsAny(s string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(s, keyword) {
+			return true
+		}
+	}
+	return false
 }

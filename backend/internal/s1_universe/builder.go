@@ -91,6 +91,7 @@ func (b *Builder) Build(ctx context.Context, snapshot *contracts.DataQualitySnap
 
 // getAllStocks retrieves all active stocks with necessary data
 func (b *Builder) getAllStocks(ctx context.Context, date time.Time) ([]Stock, error) {
+	// Note: market_cap 데이터는 가장 최근 것을 사용 (시가총액은 매일 크게 변하지 않음)
 	query := `
 		SELECT
 			s.code,
@@ -102,7 +103,11 @@ func (b *Builder) getAllStocks(ctx context.Context, date time.Time) ([]Stock, er
 			COALESCE(avg_vol.avg_volume, 0),
 			($1::date - s.listing_date) as listing_days
 		FROM data.stocks s
-		LEFT JOIN data.market_cap mc ON s.code = mc.stock_code AND mc.trade_date = $1
+		LEFT JOIN LATERAL (
+			SELECT market_cap FROM data.market_cap
+			WHERE stock_code = s.code
+			ORDER BY trade_date DESC LIMIT 1
+		) mc ON TRUE
 		LEFT JOIN (
 			SELECT
 				stock_code,

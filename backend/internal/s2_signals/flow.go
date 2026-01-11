@@ -123,14 +123,14 @@ func (c *FlowCalculator) calculateStreak(data []FlowData, investorType string) i
 
 // calculateScore calculates flow score (-1.0 ~ 1.0)
 func (c *FlowCalculator) calculateScore(foreignNet5D, foreignNet20D, instNet5D, instNet20D int64) float64 {
-	// Normalize net buying amounts
-	// Typical range: -10 billion to +10 billion won
-	// Scale: 10 billion = 1.0
+	// Normalize net buying amounts (in shares, not won)
+	// Typical 5-day range: ±100,000 ~ ±1,000,000 shares (mid-cap stocks)
+	// Scale: 500,000 shares = 1.0 for 5D, 2,000,000 for 20D
 
-	foreignScore5D := math.Tanh(float64(foreignNet5D) / 10_000_000_000)
-	foreignScore20D := math.Tanh(float64(foreignNet20D) / 50_000_000_000) // Larger scale for 20D
-	instScore5D := math.Tanh(float64(instNet5D) / 10_000_000_000)
-	instScore20D := math.Tanh(float64(instNet20D) / 50_000_000_000)
+	foreignScore5D := math.Tanh(float64(foreignNet5D) / 500_000)
+	foreignScore20D := math.Tanh(float64(foreignNet20D) / 2_000_000) // Larger scale for 20D
+	instScore5D := math.Tanh(float64(instNet5D) / 500_000)
+	instScore20D := math.Tanh(float64(instNet20D) / 2_000_000)
 
 	// Weight the factors
 	// Foreign investors are generally considered smart money

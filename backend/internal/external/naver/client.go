@@ -8,6 +8,9 @@ import (
 	"net/url"
 	"time"
 
+	"golang.org/x/text/encoding/korean"
+	"golang.org/x/text/transform"
+
 	"github.com/wonny/aegis/v13/backend/pkg/httputil"
 	"github.com/wonny/aegis/v13/backend/pkg/logger"
 )
@@ -46,7 +49,9 @@ func (c *Client) fetchHTML(ctx context.Context, path string, params url.Values) 
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// EUC-KR -> UTF-8 변환 (네이버 금융은 EUC-KR 인코딩 사용)
+	reader := transform.NewReader(resp.Body, korean.EUCKR.NewDecoder())
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
