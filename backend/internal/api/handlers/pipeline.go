@@ -454,6 +454,7 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 		args = append(args, market)
 	}
 
+	// S4 Ranking: S3 Screener 통과 종목만 포함 (PER/PBR/ROE 조건)
 	query := `
 		WITH latest_prices AS (
 			SELECT DISTINCT ON (stock_code)
@@ -463,6 +464,12 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 			FROM data.daily_prices
 			WHERE trade_date <= $1
 			ORDER BY stock_code, trade_date DESC
+		),
+		latest_fundamentals AS (
+			SELECT DISTINCT ON (stock_code)
+				stock_code, per, pbr, roe
+			FROM data.fundamentals
+			ORDER BY stock_code, date DESC
 		)
 		SELECT
 			r.stock_code,
@@ -484,11 +491,15 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 		FROM selection.ranking_results r
 		JOIN data.stocks s ON r.stock_code = s.code
 		LEFT JOIN latest_prices lp ON r.stock_code = lp.stock_code
+		JOIN latest_fundamentals lf ON r.stock_code = lf.stock_code
 		WHERE r.rank_date = $1
 		  ` + marketFilter + `
 		  AND s.status = 'active'
+		  -- S3 Screener Hard Cut 조건 (재무 지표)
+		  AND lf.per > 0 AND lf.per <= 50
+		  AND lf.pbr >= 0.2
+		  AND lf.roe >= 5
 		ORDER BY r.rank
-		LIMIT 200
 	`
 
 	rows, err := h.pool.Query(ctx, query, args...)
