@@ -469,7 +469,7 @@ func (h *PipelineHandler) GetRanking(w http.ResponseWriter, r *http.Request) {
 			SELECT DISTINCT ON (stock_code)
 				stock_code, per, pbr, roe
 			FROM data.fundamentals
-			ORDER BY stock_code, date DESC
+			ORDER BY stock_code, report_date DESC
 		)
 		SELECT
 			r.stock_code,
