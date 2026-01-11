@@ -73,6 +73,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'guide/frontend/folder-structure',
+        'guide/frontend/layout-components',
       ],
     },
     {

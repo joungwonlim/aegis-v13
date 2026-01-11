@@ -42,7 +42,7 @@ curl -X POST \
          "max_order_size": 50000000
        }
      }' \
-     http://localhost:8080/api/v1/execution/plan
+     http://localhost:8089/api/v1/execution/plan
 ```
 
 ### Request Body
@@ -137,7 +137,7 @@ curl -X POST \
        ],
        "dry_run": false
      }' \
-     http://localhost:8080/api/v1/execution/orders
+     http://localhost:8089/api/v1/execution/orders
 ```
 
 ### Request Body
@@ -192,7 +192,7 @@ curl -X POST \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/execution/orders/ORD-20240115-001
+     http://localhost:8089/api/v1/execution/orders/ORD-20240115-001
 ```
 
 ### Response
@@ -243,7 +243,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 ```bash
 curl -X DELETE \
      -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/execution/orders/ORD-20240115-001
+     http://localhost:8089/api/v1/execution/orders/ORD-20240115-001
 ```
 
 ### Response
@@ -270,7 +270,7 @@ curl -X DELETE \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/execution/orders?date=2024-01-15&status=FILLED"
+     "http://localhost:8089/api/v1/execution/orders?date=2024-01-15&status=FILLED"
 ```
 
 ### Query Parameters
@@ -315,7 +315,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/execution/balance
+     http://localhost:8089/api/v1/execution/balance
 ```
 
 ### Response
@@ -445,7 +445,7 @@ max_order_size = 50,000,000원 (5천만)
 import requests
 
 API_KEY = "YOUR_KEY"
-BASE_URL = "http://localhost:8080/api/v1"
+BASE_URL = "http://localhost:8089/api/v1"
 headers = {"Authorization": f"Bearer {API_KEY}"}
 
 # 1. 실행 계획 생성

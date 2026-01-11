@@ -13,7 +13,7 @@ description: Aegis v13 REST API 개요
 ## Base URL
 
 ```
-http://localhost:8080/api/v1
+http://localhost:8089/api/v1
 ```
 
 프로덕션: `https://api.aegis.trade/v1`
@@ -166,14 +166,14 @@ GET /api/v1/signals?date=2024-01-15
 ```bash
 # 최신 시그널 조회
 curl -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/signals/latest
+     http://localhost:8089/api/v1/signals/latest
 
 # 포트폴리오 구성
 curl -X POST \
      -H "Authorization: Bearer YOUR_KEY" \
      -H "Content-Type: application/json" \
      -d '{"date": "2024-01-15", "top_n": 30}' \
-     http://localhost:8080/api/v1/portfolio/construct
+     http://localhost:8089/api/v1/portfolio/construct
 ```
 
 ### HTTP 클라이언트 (Go)

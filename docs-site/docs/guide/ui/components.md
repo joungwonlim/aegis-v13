@@ -400,12 +400,14 @@ modules/
 │
 ├── stock/
 │   ├── components/
-│   │   ├── StockCell.tsx          # 종목명 + 로고 + 상태점
+│   │   ├── StockCell.tsx          # 종목명 + 로고 + 상태점 (클릭 시 시트 열림)
 │   │   ├── PriceCell.tsx          # 실시간 현재가
 │   │   ├── ChangeCell.tsx         # 실시간 전일대비
-│   │   └── StockDataTable.tsx     # 통합 테이블
-│   └── hooks/
-│       └── useStockInfo.ts        # 종목 정보 조회
+│   │   ├── StockDataTable.tsx     # 통합 테이블
+│   │   └── StockDetailSheet.tsx   # 종목 상세 시트 (전역)
+│   ├── hooks/
+│   │   └── useStockDetail.tsx     # 종목 상세 시트 상태 + Provider
+│   └── types.ts
 │
 └── stocklist/
     ├── components/
@@ -668,95 +670,243 @@ export function ChangeCell({ code, size = 'md', showIcon = true }: ChangeCellPro
 
 ## 5. StockDataTable (통합 테이블)
 
+**SSOT**: 모든 종목 리스트 테이블은 이 컴포넌트 기반으로 구현합니다.
+
+### 핵심 설계
+
+- **기본 컬럼 (항상 표시)**: 순번, 종목명, 현재가, 전일대비
+- **추가 컬럼**: `extraColumns` prop으로 페이지별 필요한 컬럼 추가
+
 ```tsx
 // modules/stock/components/StockDataTable.tsx
 
+import { StockDataTable, type StockDataColumn } from '@/modules/stock/components'
+
+interface StockDataItem {
+  code: string
+  name?: string
+  price?: number
+  change?: number
+  changeRate?: number
+  // 확장 가능한 필드들
+  quantity?: number
+  avgPrice?: number
+  profitLoss?: number
+  score?: number
+  rank?: number
+  [key: string]: unknown
+}
+
 interface StockDataTableProps {
-  codes: string[]                    // 종목코드 배열만 전달
+  data: StockDataItem[]
+  extraColumns?: StockDataColumn[]   // 추가 컬럼 (기본 컬럼 뒤에 표시)
   holdingCodes?: Set<string>         // 🟢 녹색점 표시할 종목
   exitMonitoringCodes?: Set<string>  // 🔴 빨간점 표시할 종목
   showIndex?: boolean
+  onRowClick?: (item: StockDataItem) => void
   onDelete?: (code: string) => void
   emptyMessage?: string
 }
+```
 
-export function StockDataTable({
-  codes,
-  holdingCodes = new Set(),
-  exitMonitoringCodes = new Set(),
-  showIndex = true,
-  onDelete,
-  emptyMessage = '종목이 없습니다',
-}: StockDataTableProps) {
-  // 종목 정보 일괄 조회 (name 등)
-  const { data: stockInfos } = useStockInfos(codes)
+### 기본 사용
 
-  if (codes.length === 0) {
-    return <div className="py-12 text-center text-muted-foreground">{emptyMessage}</div>
-  }
+```tsx
+// 기본 컬럼만 사용 (순번, 종목명, 현재가, 전일대비)
+<StockDataTable
+  data={stocks}
+  emptyMessage="종목이 없습니다"
+/>
+```
 
+### 추가 컬럼 사용
+
+```tsx
+// 유니버스 페이지: 적합도 컬럼 추가
+const extraColumns: StockDataColumn[] = [
+  {
+    key: 'score',
+    label: '적합도',
+    width: 'w-20',
+    align: 'right',
+    render: (item) => (
+      <span className="font-mono">{item.score?.toFixed(1) ?? '-'}</span>
+    ),
+  },
+]
+
+<StockDataTable
+  data={universeStocks}
+  extraColumns={extraColumns}
+/>
+```
+
+### 포트폴리오 페이지 예시
+
+```tsx
+// 포트폴리오: 보유수량, 평균매입가, 수익률 등 추가
+const portfolioColumns: StockDataColumn[] = [
+  {
+    key: 'quantity',
+    label: '보유수량',
+    width: 'w-20',
+    align: 'right',
+    render: (item) => (
+      <span className="font-mono">{item.quantity?.toLocaleString('ko-KR')}</span>
+    ),
+  },
+  {
+    key: 'avgPrice',
+    label: '평균매입가',
+    width: 'w-24',
+    align: 'right',
+    render: (item) => <PriceCell price={item.avgPrice} size="sm" />,
+  },
+  {
+    key: 'profitLossRate',
+    label: '수익률',
+    width: 'w-20',
+    align: 'right',
+    render: (item) => {
+      const rate = item.profitLossRate ?? 0
+      return (
+        <span className={cn('font-mono', rate > 0 && 'text-positive', rate < 0 && 'text-negative')}>
+          {rate > 0 ? '+' : ''}{rate.toFixed(2)}%
+        </span>
+      )
+    },
+  },
+]
+
+<StockDataTable
+  data={positions}
+  extraColumns={portfolioColumns}
+  showIndex={false}
+/>
+```
+
+### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `data` | `StockDataItem[]` | - | 종목 데이터 배열 (필수) |
+| `extraColumns` | `StockDataColumn[]` | `[]` | 추가 컬럼 정의 |
+| `holdingCodes` | `Set<string>` | `new Set()` | 보유 종목 (🟢 녹색점) |
+| `exitMonitoringCodes` | `Set<string>` | `new Set()` | 청산 모니터링 (🔴 빨간점) |
+| `showIndex` | `boolean` | `true` | 순번 컬럼 표시 |
+| `onRowClick` | `function` | - | 행 클릭 핸들러 |
+| `onDelete` | `function` | - | 삭제 버튼 핸들러 |
+| `emptyMessage` | `string` | `'종목이 없습니다'` | 빈 상태 메시지 |
+
+---
+
+## 6. StockDetailSheet (종목 상세 시트)
+
+**SSOT**: 종목명 클릭 시 열리는 상세 정보 시트입니다. 전역적으로 사용 가능합니다.
+
+### 핵심 설계
+
+- **전역 Context**: `StockDetailProvider`가 dashboard layout에 통합
+- **자동 연동**: `StockCell`의 `clickable=true`(기본값)로 자동 연결
+- **외부 링크**: 네이버 증권, DART 공시 등 바로가기 제공
+
+```
+종목명 클릭 → StockDetailSheet 자동 열림
+```
+
+### Provider 설정 (layout에 이미 포함됨)
+
+```tsx
+// app/(dashboard)/providers.tsx
+import { StockDetailProvider, StockDetailSheet } from '@/modules/stock'
+
+export function DashboardProviders({ children }: { children: ReactNode }) {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          {showIndex && <TableHead className="w-12 text-center">순번</TableHead>}
-          <TableHead className="w-40">종목명</TableHead>
-          <TableHead className="text-right w-24">현재가</TableHead>
-          <TableHead className="text-right w-32">전일대비</TableHead>
-          {onDelete && <TableHead className="w-12" />}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {codes.map((code, index) => {
-          const info = stockInfos?.[code]
-          const isHolding = holdingCodes.has(code)
-          const isExitMonitoring = exitMonitoringCodes.has(code)
-
-          return (
-            <TableRow key={code}>
-              {showIndex && (
-                <TableCell className="text-center text-muted-foreground">
-                  {index + 1}
-                </TableCell>
-              )}
-              <TableCell>
-                <StockCell
-                  code={code}
-                  name={info?.name}
-                  size="sm"
-                  isHolding={isHolding}
-                  isExitMonitoring={isExitMonitoring}
-                />
-              </TableCell>
-              <TableCell className="text-right">
-                <PriceCell code={code} size="sm" />
-              </TableCell>
-              <TableCell className="text-right">
-                <ChangeCell code={code} size="sm" />
-              </TableCell>
-              {onDelete && (
-                <TableCell>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onDelete(code)}
-                  >
-                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                  </Button>
-                </TableCell>
-              )}
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
+    <StockDetailProvider>
+      {children}
+      <StockDetailSheet />
+    </StockDetailProvider>
   )
 }
 ```
 
+### StockCell 자동 연동
+
+```tsx
+// 기본적으로 클릭 가능 (clickable=true)
+<StockCell code="005930" name="삼성전자" />
+
+// 클릭 비활성화
+<StockCell code="005930" name="삼성전자" clickable={false} />
+
+// 커스텀 클릭 핸들러 (StockDetailSheet 대신 커스텀 동작)
+<StockCell
+  code="005930"
+  name="삼성전자"
+  onClick={(stock) => console.log(stock)}
+/>
+```
+
+### 직접 호출 (useStockDetail)
+
+```tsx
+import { useStockDetail } from '@/modules/stock'
+
+function MyComponent() {
+  const { openStockDetail, closeStockDetail, isOpen, selectedStock } = useStockDetail()
+
+  const handleOpenSheet = () => {
+    openStockDetail({ code: '005930', name: '삼성전자' })
+  }
+
+  return (
+    <Button onClick={handleOpenSheet}>삼성전자 상세보기</Button>
+  )
+}
+```
+
+### StockDetailSheet Props
+
+StockDetailSheet는 props 없이 사용됩니다. Context에서 상태를 가져옵니다.
+
+```tsx
+// dashboard layout에서 한 번만 렌더링
+<StockDetailSheet />
+```
+
+### useStockDetail 반환값
+
+| 반환값 | Type | Description |
+|--------|------|-------------|
+| `selectedStock` | `StockInfo \| null` | 선택된 종목 정보 |
+| `isOpen` | `boolean` | 시트 열림 상태 |
+| `openStockDetail` | `(stock: StockInfo) => void` | 시트 열기 |
+| `closeStockDetail` | `() => void` | 시트 닫기 |
+| `handleOpenChange` | `(open: boolean) => void` | Sheet의 onOpenChange용 |
+
+### 외부 링크
+
+StockDetailSheet에서 제공하는 외부 링크:
+
+| 링크 | URL 패턴 |
+|------|----------|
+| 네이버 증권 | `https://finance.naver.com/item/main.naver?code={code}` |
+| 네이버 토론 | `https://finance.naver.com/item/board.naver?code={code}` |
+| DART 공시 | `https://dart.fss.or.kr/dsab001/main.do?autoSearch=true&textCrpNm={name}` |
+| 증권플러스 커뮤 | `https://m.stockplus.com/m/stocks/KOREA-A{code}/community` |
+
+### 확장 계획
+
+향후 추가 예정 기능:
+- 실시간 가격 정보
+- 일봉/주봉 차트
+- 뉴스/공시 탭
+- 재무 정보 탭
+- 관심종목 추가/삭제 버튼
+
 ---
 
-## 6. StockListTable (종목 리스트 테이블)
+## 7. StockListTable (종목 리스트 테이블)
 
 ```tsx
 // modules/stocklist/components/StockListTable.tsx
@@ -836,15 +986,17 @@ const codes = ['195990', '073570', '005930']
 
 ### 스타일 가이드
 
-#### 색상
+#### 색상 (한국 주식 시장 기준)
 
-| 상태 | Light Theme | Dark Theme |
-|------|-------------|------------|
-| 상승 (▲) | `text-positive` (#22c55e) | `text-positive` (#22c55e) |
-| 하락 (▼) | `text-negative` (#ef4444) | `text-negative` (#ef4444) |
-| 보합 | `text-muted-foreground` | `text-muted-foreground` |
-| 배경 | `bg-card` (white) | `bg-card` (#1c1c1e) |
-| 테두리 | `border` | `border` |
+| 상태 | 색상 | CSS Variable | 값 |
+|------|------|--------------|-----|
+| 상승 (▲) | 빨간색 | `text-positive` | `#EA5455` |
+| 하락 (▼) | 파란색 | `text-negative` | `#2196F3` |
+| 보합 | 회색 | `text-neutral` | `#82868B` |
+| 배경 | - | `bg-background` | Light: `oklch(0.97 0 0)`, Dark: `oklch(0.145 0 0)` |
+| 카드 | - | `bg-card` | Light: `oklch(1 0 0)`, Dark: `oklch(0.205 0 0)` |
+
+> ⚠️ **중요**: 한국 주식 시장은 미국과 반대로 빨간색=상승, 파란색=하락입니다.
 
 #### 폰트
 
@@ -1018,27 +1170,36 @@ export function Watchlist({
 Tailwind CSS와 CSS 변수를 사용하여 다크/라이트 테마를 자동으로 지원합니다.
 
 ```css
-/* globals.css */
+/* globals.css - 한국 주식 시장 기준 */
 :root {
-  --positive: 142 76% 36%;  /* green-500 */
-  --negative: 0 84% 60%;    /* red-500 */
+  --background: oklch(0.97 0 0);      /* 연한 회색 */
+  --card: oklch(1 0 0);               /* 흰색 */
+  --positive: #EA5455;                /* 빨간색 - 상승 */
+  --positive-light: #EA54551A;
+  --negative: #2196F3;                /* 파란색 - 하락 */
+  --negative-light: #2196F31A;
+  --neutral: #82868B;
 }
 
 .dark {
-  --positive: 142 71% 45%;
-  --negative: 0 91% 71%;
+  --background: oklch(0.145 0 0);     /* 진한 검정 */
+  --card: oklch(0.205 0 0);           /* 밝은 검정 */
+  --positive: #EA5455;                /* 빨간색 - 상승 */
+  --positive-light: #EA54551A;
+  --negative: #2196F3;                /* 파란색 - 하락 */
+  --negative-light: #2196F31A;
+  --neutral: #82868B;
 }
 ```
 
 ```tsx
-// tailwind.config.ts
-theme: {
-  extend: {
-    colors: {
-      positive: 'hsl(var(--positive))',
-      negative: 'hsl(var(--negative))',
-    }
-  }
+// Tailwind v4: @theme inline 사용
+@theme inline {
+  --color-positive: var(--positive);
+  --color-positive-light: var(--positive-light);
+  --color-negative: var(--negative);
+  --color-negative-light: var(--negative-light);
+  --color-neutral: var(--neutral);
 }
 ```
 

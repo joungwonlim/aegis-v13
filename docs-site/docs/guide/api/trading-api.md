@@ -64,7 +64,7 @@ Execution API가 전략 기반 주문 계획/실행을 다룬다면, Trading API
 ### Request
 
 ```bash
-curl http://localhost:8080/api/trading/balance
+curl http://localhost:8089/api/trading/balance
 ```
 
 ### Response
@@ -117,7 +117,7 @@ curl http://localhost:8080/api/trading/balance
 ### Request
 
 ```bash
-curl http://localhost:8080/api/trading/positions
+curl http://localhost:8089/api/trading/positions
 ```
 
 ### Response
@@ -150,7 +150,7 @@ curl http://localhost:8080/api/trading/positions
 ### Request
 
 ```bash
-curl "http://localhost:8080/api/trading/orders?start_date=20240101&end_date=20240131"
+curl "http://localhost:8089/api/trading/orders?start_date=20240101&end_date=20240131"
 ```
 
 ### Query Parameters
@@ -193,7 +193,7 @@ curl "http://localhost:8080/api/trading/orders?start_date=20240101&end_date=2024
 ### Request
 
 ```bash
-curl http://localhost:8080/api/trading/orders/unfilled
+curl http://localhost:8089/api/trading/orders/unfilled
 ```
 
 ### Response
@@ -226,7 +226,7 @@ curl http://localhost:8080/api/trading/orders/unfilled
 ### Request
 
 ```bash
-curl http://localhost:8080/api/trading/orders/filled
+curl http://localhost:8089/api/trading/orders/filled
 ```
 
 ### Response
@@ -266,7 +266,7 @@ curl -X POST \
        "quantity": 10,
        "price": 72000
      }' \
-     http://localhost:8080/api/trading/orders
+     http://localhost:8089/api/trading/orders
 ```
 
 ### Request Body
@@ -305,7 +305,7 @@ curl -X POST \
 
 ```bash
 curl -X DELETE \
-     "http://localhost:8080/api/trading/orders?order_no=0001234569"
+     "http://localhost:8089/api/trading/orders?order_no=0001234569"
 ```
 
 ### Query Parameters
@@ -332,7 +332,7 @@ curl -X DELETE \
 ### Request
 
 ```bash
-curl "http://localhost:8080/api/trading/price?stock_code=005930"
+curl "http://localhost:8089/api/trading/price?stock_code=005930"
 ```
 
 ### Query Parameters
@@ -366,7 +366,7 @@ WebSocket 연결 상태 조회
 ### Request
 
 ```bash
-curl http://localhost:8080/api/trading/ws/status
+curl http://localhost:8089/api/trading/ws/status
 ```
 
 ### Response
@@ -393,7 +393,7 @@ curl -X POST \
      -d '{
        "symbols": ["005930", "000660", "035720"]
      }' \
-     http://localhost:8080/api/trading/ws/subscribe
+     http://localhost:8089/api/trading/ws/subscribe
 ```
 
 ### Request Body
@@ -431,7 +431,7 @@ curl -X POST \
      -d '{
        "symbols": ["035720"]
      }' \
-     http://localhost:8080/api/trading/ws/unsubscribe
+     http://localhost:8089/api/trading/ws/unsubscribe
 ```
 
 ### Response
@@ -513,7 +513,7 @@ curl -X POST \
        "quantity": 10,
        "price": 72000
      }' \
-     http://localhost:8080/api/trading/orders
+     http://localhost:8089/api/trading/orders
 ```
 
 ### cURL: 시장가 매도
@@ -529,7 +529,7 @@ curl -X POST \
        "quantity": 5,
        "price": 0
      }' \
-     http://localhost:8080/api/trading/orders
+     http://localhost:8089/api/trading/orders
 ```
 
 ### cURL: 실시간 구독
@@ -539,16 +539,16 @@ curl -X POST \
 curl -X POST \
      -H "Content-Type: application/json" \
      -d '{"symbols": ["005930", "000660"]}' \
-     http://localhost:8080/api/trading/ws/subscribe
+     http://localhost:8089/api/trading/ws/subscribe
 
 # 상태 확인
-curl http://localhost:8080/api/trading/ws/status
+curl http://localhost:8089/api/trading/ws/status
 
 # 구독 해제
 curl -X POST \
      -H "Content-Type: application/json" \
      -d '{"symbols": ["000660"]}' \
-     http://localhost:8080/api/trading/ws/unsubscribe
+     http://localhost:8089/api/trading/ws/unsubscribe
 ```
 
 ---

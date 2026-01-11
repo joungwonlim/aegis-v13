@@ -106,7 +106,7 @@ go run ./cmd/quant fetcher collect all --async
 **서버 실행**
 
 ```bash
-# Backend (8080 포트 kill 후 재시작)
+# Backend (8089 포트 kill 후 재시작)
 go run ./cmd/quant backend start
 
 # Frontend (3000 포트 kill 후 재시작)

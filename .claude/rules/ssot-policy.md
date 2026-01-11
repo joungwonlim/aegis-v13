@@ -16,6 +16,57 @@
 | 타입 정의 | `internal/contracts` | 레이어에서 중복 정의 |
 | 외부 API | `internal/external` | 레이어에서 직접 호출 |
 
+---
+
+## ⚠️ Claude Code DB 접속 규칙 (BLOCKER)
+
+**Claude Code가 데이터베이스에 접속해야 할 때 반드시 따라야 하는 규칙입니다.**
+
+### 절대 금지
+
+```bash
+# ❌ 절대 금지: 임의의 credentials 사용
+psql -U postgres -d aegis ...
+psql -U root -d database ...
+PGPASSWORD=password psql ...
+```
+
+### 필수 절차
+
+**Step 1**: `pkg/config/config.go` 읽기 (MANDATORY)
+```bash
+# DB 접속 전 반드시 설정 파일 확인
+cat backend/pkg/config/config.go | grep -A5 "DatabaseConfig"
+```
+
+**Step 2**: 기본값 확인
+```go
+// pkg/config/config.go에서 확인
+DB_HOST     = getEnv("DB_HOST", "localhost")
+DB_PORT     = getEnv("DB_PORT", "5432")
+DB_NAME     = getEnv("DB_NAME", "aegis_v13")      // ⭐ 기본값
+DB_USER     = getEnv("DB_USER", "aegis_v13")      // ⭐ 기본값
+DB_PASSWORD = getEnv("DB_PASSWORD", "")
+```
+
+**Step 3**: SSOT 기본값으로 접속
+```bash
+# ✅ 올바른 접속 방법
+psql -h localhost -p 5432 -U aegis_v13 -d aegis_v13
+```
+
+### 위반 시 조치
+
+1. **즉시 중단**: 임의 credentials 사용 시도 시 작업 중단
+2. **SSOT 확인**: `pkg/config/config.go` 읽기
+3. **재시도**: 올바른 credentials로 재접속
+
+### 이 규칙이 필요한 이유
+
+- DB 연결 정보는 환경마다 다를 수 있음
+- 임의 추측은 보안 위험 + 시간 낭비
+- SSOT 원칙: 설정 정보는 `pkg/config/`에서만 관리
+
 ### 위반 예시
 
 ```go

@@ -69,7 +69,7 @@ cp .env.example .env.local
 `.env.local` 파일 편집:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_API_URL=http://localhost:8089
 ```
 
 ---
@@ -125,7 +125,7 @@ pnpm install
 ```bash
 cd backend
 make run
-# Server running on http://localhost:8080
+# Server running on http://localhost:8089
 ```
 
 터미널 2 - Frontend:
@@ -138,7 +138,7 @@ pnpm dev
 ### CLI로 실행
 
 ```bash
-# Backend (8080 포트 kill 후 재시작)
+# Backend (8089 포트 kill 후 재시작)
 go run ./cmd/quant backend start
 
 # Frontend (3000 포트 kill 후 재시작)
@@ -176,7 +176,7 @@ pnpm start
 ### API 헬스체크
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8089/health
 # {"status":"ok"}
 ```
 

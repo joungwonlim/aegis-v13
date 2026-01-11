@@ -29,7 +29,7 @@ description: S2 팩터 시그널 API
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/signals/latest
+     http://localhost:8089/api/v1/signals/latest
 ```
 
 ### Response
@@ -71,7 +71,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/signals/2024-01-15?limit=100"
+     "http://localhost:8089/api/v1/signals/2024-01-15?limit=100"
 ```
 
 ### Query Parameters
@@ -110,7 +110,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/signals/2024-01-15/005930
+     http://localhost:8089/api/v1/signals/2024-01-15/005930
 ```
 
 ### Response
@@ -206,7 +206,7 @@ curl -X POST \
        "date": "2024-01-15",
        "universe": ["005930", "000660", "035420"]
      }' \
-     http://localhost:8080/api/v1/signals/calculate
+     http://localhost:8089/api/v1/signals/calculate
 ```
 
 ### Request Body
@@ -311,7 +311,7 @@ GET /signals/jobs/signal_calc_20240115_143052
 import requests
 
 API_KEY = "YOUR_KEY"
-BASE_URL = "http://localhost:8080/api/v1"
+BASE_URL = "http://localhost:8089/api/v1"
 
 headers = {"Authorization": f"Bearer {API_KEY}"}
 

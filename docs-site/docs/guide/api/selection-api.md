@@ -29,7 +29,7 @@ description: S3-S4 스크리닝/랭킹 API
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     http://localhost:8080/api/v1/selection/screened?date=2024-01-15
+     http://localhost:8089/api/v1/selection/screened?date=2024-01-15
 ```
 
 ### Query Parameters
@@ -79,7 +79,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/selection/ranked?date=2024-01-15&top_n=30"
+     "http://localhost:8089/api/v1/selection/ranked?date=2024-01-15&top_n=30"
 ```
 
 ### Query Parameters
@@ -153,7 +153,7 @@ curl -X POST \
          "min_roe": 0.10
        }
      }' \
-     http://localhost:8080/api/v1/selection/screen
+     http://localhost:8089/api/v1/selection/screen
 ```
 
 ### Request Body
@@ -203,7 +203,7 @@ curl -X POST \
        },
        "top_n": 30
      }' \
-     http://localhost:8080/api/v1/selection/rank
+     http://localhost:8089/api/v1/selection/rank
 ```
 
 ### Request Body

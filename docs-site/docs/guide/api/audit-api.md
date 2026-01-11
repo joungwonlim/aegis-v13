@@ -30,7 +30,7 @@ description: S7 성과 분석 API
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/audit/performance?period=3M"
+     "http://localhost:8089/api/v1/audit/performance?period=3M"
 ```
 
 ### Query Parameters
@@ -91,7 +91,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/audit/attribution?period=1M"
+     "http://localhost:8089/api/v1/audit/attribution?period=1M"
 ```
 
 ### Response
@@ -184,7 +184,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/audit/snapshots?start_date=2024-01-01&end_date=2024-01-15"
+     "http://localhost:8089/api/v1/audit/snapshots?start_date=2024-01-01&end_date=2024-01-15"
 ```
 
 ### Query Parameters
@@ -236,7 +236,7 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_KEY" \
-     "http://localhost:8080/api/v1/audit/equity-curve?start_date=2023-10-01&end_date=2024-01-15"
+     "http://localhost:8089/api/v1/audit/equity-curve?start_date=2023-10-01&end_date=2024-01-15"
 ```
 
 ### Response
@@ -296,7 +296,7 @@ curl -X POST \
        "cash": 5230000,
        "positions": [ ... ]
      }' \
-     http://localhost:8080/api/v1/audit/snapshot
+     http://localhost:8089/api/v1/audit/snapshot
 ```
 
 ### Response
@@ -432,7 +432,7 @@ import requests
 import matplotlib.pyplot as plt
 
 API_KEY = "YOUR_KEY"
-BASE_URL = "http://localhost:8080/api/v1"
+BASE_URL = "http://localhost:8089/api/v1"
 headers = {"Authorization": f"Bearer {API_KEY}"}
 
 # 1. 성과 분석
